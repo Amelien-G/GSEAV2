@@ -104,7 +104,7 @@ class TestDownloadRetryBehavior:
         cache_dir = tmp_path / "cache"
         # cache_dir does not need to pre-exist; download_or_load_obo creates it
 
-        with patch("gsea_tool.go_clustering.urllib.request.urlretrieve") as mock_retrieve:
+        with patch("gsea_tool.go_clustering._download_file") as mock_retrieve:
             mock_retrieve.side_effect = urllib.error.URLError("network error")
 
             with pytest.raises(ConnectionError):
@@ -121,7 +121,7 @@ class TestDownloadRetryBehavior:
         """
         cache_dir = tmp_path / "cache"
 
-        with patch("gsea_tool.go_clustering.urllib.request.urlretrieve") as mock_retrieve:
+        with patch("gsea_tool.go_clustering._download_file") as mock_retrieve:
             mock_retrieve.side_effect = urllib.error.URLError("network error")
 
             with pytest.raises(ConnectionError):
@@ -146,7 +146,7 @@ class TestDownloadRetryBehavior:
             # Second attempt succeeds: write a file
             Path(path).write_text("format-version: 1.2\n")
 
-        with patch("gsea_tool.go_clustering.urllib.request.urlretrieve") as mock_retrieve:
+        with patch("gsea_tool.go_clustering._download_file") as mock_retrieve:
             mock_retrieve.side_effect = side_effect_succeed_on_retry
             result = download_or_load_obo("http://example.com/go-basic.obo", cache_dir)
             assert isinstance(result, Path)
@@ -166,7 +166,7 @@ class TestDownloadRetryBehavior:
                 raise urllib.error.URLError("first attempt fails")
             Path(path).write_bytes(b"gaf content")
 
-        with patch("gsea_tool.go_clustering.urllib.request.urlretrieve") as mock_retrieve:
+        with patch("gsea_tool.go_clustering._download_file") as mock_retrieve:
             mock_retrieve.side_effect = side_effect_succeed_on_retry
             result = download_or_load_gaf("http://example.com/fb.gaf.gz", cache_dir)
             assert isinstance(result, Path)
@@ -179,7 +179,7 @@ class TestDownloadRetryBehavior:
         """
         cache_dir = tmp_path / "cache"
 
-        with patch("gsea_tool.go_clustering.urllib.request.urlretrieve") as mock_retrieve:
+        with patch("gsea_tool.go_clustering._download_file") as mock_retrieve:
             mock_retrieve.side_effect = urllib.error.URLError("network error")
 
             with pytest.raises(ConnectionError, match="OBO"):
@@ -193,7 +193,7 @@ class TestDownloadRetryBehavior:
         """
         cache_dir = tmp_path / "cache"
 
-        with patch("gsea_tool.go_clustering.urllib.request.urlretrieve") as mock_retrieve:
+        with patch("gsea_tool.go_clustering._download_file") as mock_retrieve:
             mock_retrieve.side_effect = urllib.error.URLError("network error")
 
             with pytest.raises(ConnectionError, match="GAF"):

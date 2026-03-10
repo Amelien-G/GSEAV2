@@ -30,6 +30,20 @@ class ClusteringResult:
     similarity_threshold: float
 
 
+def _download_file(url: str, dest: Path) -> None:
+    """Download a file from url to dest, sending a browser-like User-Agent.
+
+    The Gene Ontology server rejects requests with the default Python
+    user-agent, so we set a standard browser User-Agent header.
+    """
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; GSEA-Tool/2.1)"},
+    )
+    with urllib.request.urlopen(req) as response, open(dest, "wb") as out:
+        out.write(response.read())
+
+
 def download_or_load_obo(obo_url: str, cache_dir: Path) -> Path:
     """Download the GO OBO file if not cached, or return cached path.
 
@@ -46,7 +60,7 @@ def download_or_load_obo(obo_url: str, cache_dir: Path) -> Path:
     # Try downloading with one retry
     for attempt in range(2):
         try:
-            urllib.request.urlretrieve(obo_url, str(cached_path))
+            _download_file(obo_url, cached_path)
             return cached_path
         except (urllib.error.URLError, OSError):
             if attempt == 1:
@@ -72,7 +86,7 @@ def download_or_load_gaf(gaf_url: str, cache_dir: Path) -> Path:
 
     for attempt in range(2):
         try:
-            urllib.request.urlretrieve(gaf_url, str(cached_path))
+            _download_file(gaf_url, cached_path)
             return cached_path
         except (urllib.error.URLError, OSError):
             if attempt == 1:
