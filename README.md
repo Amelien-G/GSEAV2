@@ -129,13 +129,13 @@ your-project-directory/
         mutant_B.GseaPreranked.1234567890/
             gsea_report_for_na_pos_1234567890.tsv
             gsea_report_for_na_neg_1234567890.tsv
-    category_mapping.tsv  (optional, for Figure 1 via TSV path)
-    config.yaml           (optional, for custom settings)
+    config.yaml           (optional, for custom settings including Figure 1 categories)
+    category_mapping.tsv  (optional, legacy fallback for Figure 1)
 ```
 
 ### Running the Tool
 
-**Produce Figure 2 and Figure 3 only (no mapping file):**
+**Produce Figures 2 and 3 only (default, no Figure 1):**
 
 ```bash
 cd your-project-directory
@@ -143,38 +143,49 @@ conda activate gseav2
 gsea-tool
 ```
 
-**Produce all three figures (with mapping file for Figure 1):**
+**Produce all three figures including Figure 1 (recommended: via config.yaml):**
+
+Add `cherry_pick` entries to `config.yaml` (see Section 6 below), then run:
 
 ```bash
-cd your-project-directory
-conda activate gseav2
+gsea-tool
+```
+
+The tool uses the GO ontology to automatically resolve all descendant GO terms of each parent GO ID you specify, then intersects them with your GSEA results. This is the recommended approach.
+
+**Produce Figure 1 via TSV mapping file (legacy fallback):**
+
+```bash
 gsea-tool category_mapping.tsv
 ```
 
-**Produce Figure 1 via ontology resolution (no mapping file needed):**
+This approach is retained for backward compatibility and for cases where automatic ontology resolution is not desired. See `category_mapping.tsv.example` for the expected format.
 
-Add `cherry_pick` entries to `config.yaml` with GO term IDs and labels. The tool will resolve descendant terms from the GO ontology automatically. See `config.yaml.example` for the format.
+**Precedence rule:** If both `cherry_pick` entries exist in `config.yaml` and a mapping TSV file is provided as a CLI argument, the config-based ontology approach takes precedence and a warning is printed to stderr.
 
-### Category Mapping File Format (for Figure 1)
+### Category Mapping File Format (TSV fallback for Figure 1)
 
 The mapping file is a two-column TSV (tab-separated) with GO term name in the first column and category name in the second:
 
 ```
-MITOCHONDRIAL RESPIRATORY CHAIN COMPLEX ASSEMBLY    Mitochondria
-CYTOPLASMIC TRANSLATION    Translation
-G PROTEIN-COUPLED RECEPTOR SIGNALING PATHWAY    GPCR
-SYNAPSE ORGANIZATION    Synapse
+MITOCHONDRIAL RESPIRATORY CHAIN COMPLEX ASSEMBLY	Mitochondria
+MITOCHONDRION ORGANIZATION	Mitochondria
+CYTOPLASMIC TRANSLATION	Translation
+TRANSLATION	Translation
+G PROTEIN-COUPLED RECEPTOR SIGNALING PATHWAY	GPCR
+SYNAPSE ORGANIZATION	Synapse
+SYNAPSE	Synapse
 ```
 
-Lines starting with `#` are treated as comments. Category names must be one of: Mitochondria, Translation, GPCR, Synapse.
+Lines starting with `#` are treated as comments. Term names are matched case-insensitively against the GSEA results. Category names are user-defined and determine the grouping boxes in the figure.
 
-**Note:** If both `cherry_pick_categories` in `config.yaml` and a mapping TSV file are provided, the config-based ontology approach takes precedence and a warning is printed to stderr.
+See `category_mapping.tsv.example` in the repository for a complete example.
 
 ### Output
 
 All outputs are written to `output/` in the project directory:
 
-- `figure1_cherry_picked.{pdf,png,svg}` -- hypothesis-driven dot plot (if mapping file or cherry_pick config provided)
+- `figure1_cherry_picked.{pdf,png,svg}` -- hypothesis-driven dot plot (if cherry_pick config or mapping file provided)
 - `figure2_unbiased.{pdf,png,svg}` -- data-driven dot plot
 - `figure3_meta_analysis.{pdf,png,svg}` -- meta-analysis bar plot
 - `pvalue_matrix.tsv` -- raw p-value matrix for all GO terms
@@ -185,9 +196,79 @@ On success, the tool prints a summary to the terminal showing the number of muta
 
 ## 6. Configuration
 
-Create a `config.yaml` file in your project directory to customize parameters. If no `config.yaml` is present, all defaults are used.
+Create a `config.yaml` file in your project directory to customize parameters. If no `config.yaml` is present, all defaults are used. See also `config.yaml.example` for a fully commented template.
 
-See `config.yaml.example` for a fully documented example with all available options and their defaults. The generated `notes.md` in the output directory also contains a full configuration guide.
+### Cherry-pick categories (Figure 1)
+
+The preferred way to produce Figure 1 is to define categories directly in `config.yaml`. Each entry specifies a parent GO term ID; the tool resolves all descendant terms from the GO ontology automatically:
+
+```yaml
+cherry_pick:
+  - go_id: "GO:0005739"
+    label: "Mitochondria"
+  - go_id: "GO:0006412"
+    label: "Translation"
+  - go_id: "GO:0007186"
+    label: "GPCR"
+  - go_id: "GO:0045202"
+    label: "Synapse"
+```
+
+Each entry has:
+- `go_id`: A parent GO term ID. All descendants in the GO hierarchy are included.
+- `label`: Display name for the category box in the figure.
+
+The order of entries determines the order of category boxes. Categories with zero matching terms after intersection with GSEA results are silently omitted.
+
+When `cherry_pick` is empty or absent and no mapping TSV file is provided, Figure 1 is not produced.
+
+### Dot plot parameters (Figures 1 and 2)
+
+```yaml
+dot_plot:
+  fdr_threshold: 0.05   # Significance threshold for dot presence
+  top_n: 20             # Number of top GO terms in Figure 2
+  n_groups: 4           # Number of unsupervised clusters for Figure 2
+  random_seed: 42       # Random seed for reproducibility
+```
+
+### Fisher meta-analysis parameters (Figure 3)
+
+```yaml
+fisher:
+  pseudocount: 1.0e-10     # Pseudocount to avoid log(0)
+  apply_fdr: false          # Apply BH-FDR correction to combined p-values
+  fdr_threshold: 0.25       # FDR threshold (only used when apply_fdr is true)
+  prefilter_pvalue: 0.05    # Pre-filter threshold for clustering input
+  top_n_bars: 20            # Number of bars in Figure 3
+```
+
+### GO semantic similarity clustering
+
+```yaml
+clustering:
+  enabled: true               # Set to false to skip clustering
+  similarity_metric: "Lin"    # Similarity metric
+  similarity_threshold: 0.7   # Threshold for grouping similar terms
+  go_obo_url: "https://current.geneontology.org/ontology/go-basic.obo"
+  # gaf_url: ""               # Defaults to Drosophila GAF
+```
+
+### Plot appearance (all figures)
+
+```yaml
+plot:
+  dpi: 300
+  font_family: "Arial"
+  bar_colormap: "YlOrRd"
+  bar_figure_width: 10.0
+  bar_figure_height: 8.0
+  label_max_length: 60
+  show_significance_line: true
+  show_recurrence_annotation: true
+```
+
+The generated `notes.md` in the output directory also contains a full configuration guide with the values used for each run.
 
 ## 7. Input Data Format
 

@@ -1,0 +1,16 @@
+# Category mapping file for Figure 1 (TSV fallback approach)
+# Two columns, tab-separated: GO term name, category name
+# Lines starting with # are comments
+# Term names are matched case-insensitively against GSEA results
+MITOCHONDRIAL RESPIRATORY CHAIN COMPLEX ASSEMBLY	Mitochondria
+MITOCHONDRION ORGANIZATION	Mitochondria
+MITOCHONDRIAL TRANSPORT	Mitochondria
+MITOCHONDRION	Mitochondria
+CYTOPLASMIC TRANSLATION	Translation
+TRANSLATION	Translation
+RIBOSOME BIOGENESIS	Translation
+G PROTEIN-COUPLED RECEPTOR SIGNALING PATHWAY	GPCR
+NEUROPEPTIDE SIGNALING PATHWAY	GPCR
+SYNAPSE ORGANIZATION	Synapse
+SYNAPSE	Synapse
+SYNAPTIC SIGNALING	Synapse
