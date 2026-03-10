@@ -220,8 +220,8 @@ For each GO term (row of the matrix):
 
 1. Pre-filter: retain only GO terms with combined p-value below a configurable threshold (default: 0.05).
 2. Compute pairwise semantic similarity between all pre-filtered GO terms using **Lin similarity** via the `goatools` library.
-3. Information content is computed from the *Drosophila melanogaster* Gene Annotation File (GAF), which the tool auto-downloads from a standard source (GO Consortium or FlyBase). The download URL is configurable in `config.yaml`.
-4. The GO OBO file (ontology graph) is also auto-downloaded. The download URL is configurable in `config.yaml`.
+3. Information content is computed from the *Drosophila melanogaster* Gene Annotation File (GAF), which the tool auto-downloads from a standard source (GO Consortium or FlyBase). The download URL is configurable in `config.yaml`. HTTP requests must include a browser-like User-Agent header because the Gene Ontology server rejects Python's default user-agent.
+4. The GO OBO file (ontology graph) is also auto-downloaded. The download URL is configurable in `config.yaml`. The same User-Agent requirement applies.
 5. **Clustering method**: Hierarchical agglomerative clustering on the similarity matrix, cut at a configurable similarity threshold (default: 0.7).
 6. **Representative selection**: Within each cluster, select the GO term with the lowest combined Fisher p-value as the representative.
 7. Store the cluster assignments and representative terms.
