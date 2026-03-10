@@ -72,9 +72,6 @@ def parse_category_mapping(mapping_path: Path) -> dict[str, str]:
     return result
 
 
-_FIXED_CATEGORY_ORDER = ["Mitochondria", "Translation", "GPCR", "Synapse"]
-
-
 def select_cherry_picked_terms(
     cohort: CohortData,
     term_to_category: dict[str, str],
@@ -83,9 +80,10 @@ def select_cherry_picked_terms(
 
     Terms are included if they appear in both the mapping and the GSEA results.
     Within each category, terms are sorted by mean absolute NES descending.
-    Categories are returned in the fixed order: Mitochondria, Translation, GPCR, Synapse.
+    Categories are returned in the order they first appear in the mapping file.
+    Categories with zero matching terms are silently omitted.
     """
-    # Build category -> list of matching term names
+    # Build category -> list of matching term names, preserving insertion order
     category_terms: dict[str, list[str]] = {}
 
     # The mapping keys are uppercase; cohort.all_term_names are also uppercase (from Unit 1)
@@ -104,12 +102,9 @@ def select_cherry_picked_terms(
             category_terms[category_name] = []
         category_terms[category_name].append(actual_term)
 
-    # Build result in fixed category order, sorting terms within each category
+    # Build result in insertion order, sorting terms within each category
     groups: list[CategoryGroup] = []
-    for cat_name in _FIXED_CATEGORY_ORDER:
-        if cat_name not in category_terms:
-            continue
-        terms = category_terms[cat_name]
+    for cat_name, terms in category_terms.items():
         terms.sort(key=lambda t: _compute_mean_abs_nes(t, cohort), reverse=True)
         if terms:
             groups.append(CategoryGroup(category_name=cat_name, term_names=terms))

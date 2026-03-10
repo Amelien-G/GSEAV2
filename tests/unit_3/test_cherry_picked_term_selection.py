@@ -659,14 +659,14 @@ class TestSelectCherryPickedTermsSorting:
 
 
 class TestSelectCherryPickedTermsCategoryOrder:
-    """Test fixed category ordering: Mitochondria, Translation, GPCR, Synapse."""
+    """Test category ordering follows first-appearance order from mapping."""
 
-    def test_fixed_category_order_all_four(self):
-        """Contract 5: Categories are returned in the fixed order:
-        Mitochondria, Translation, GPCR, Synapse.
+    def test_category_order_follows_mapping_insertion_order(self):
+        """Contract 5: Categories are returned in the order they first
+        appear in the mapping dictionary (which reflects TSV file order).
 
         DATA ASSUMPTION: One term per category, all present in GSEA results.
-        Output order should be fixed regardless of input order.
+        Output order should follow the mapping's insertion order.
         """
         cohort = _make_cohort({
             "mutA": {
@@ -676,7 +676,7 @@ class TestSelectCherryPickedTermsCategoryOrder:
                 "MITO TERM": 2.5,
             },
         })
-        # Intentionally supply in reverse order
+        # Supply in a specific order — output should match
         term_to_category = {
             "SYNAPSE TERM": "Synapse",
             "GPCR TERM": "GPCR",
@@ -686,18 +686,18 @@ class TestSelectCherryPickedTermsCategoryOrder:
         result = select_cherry_picked_terms(cohort, term_to_category)
 
         assert len(result) == 4
-        assert result[0].category_name == "Mitochondria"
-        assert result[1].category_name == "Translation"
-        assert result[2].category_name == "GPCR"
-        assert result[3].category_name == "Synapse"
+        assert result[0].category_name == "Synapse"
+        assert result[1].category_name == "GPCR"
+        assert result[2].category_name == "Translation"
+        assert result[3].category_name == "Mitochondria"
 
-    def test_fixed_order_with_subset_of_categories(self):
+    def test_order_with_subset_of_categories(self):
         """Contract 5: When only some categories have matching terms, the
-        returned order still follows the fixed order with absent categories
-        omitted.
+        returned order follows mapping first-appearance order with absent
+        categories omitted.
 
         DATA ASSUMPTION: Terms only in GPCR and Mitochondria categories.
-        Output should be [Mitochondria, GPCR], not [GPCR, Mitochondria].
+        Output order follows which category appears first in the mapping.
         """
         cohort = _make_cohort({
             "mutA": {
@@ -712,13 +712,13 @@ class TestSelectCherryPickedTermsCategoryOrder:
         result = select_cherry_picked_terms(cohort, term_to_category)
 
         assert len(result) == 2
-        assert result[0].category_name == "Mitochondria"
-        assert result[1].category_name == "GPCR"
+        assert result[0].category_name == "GPCR"
+        assert result[1].category_name == "Mitochondria"
 
-    def test_fixed_order_translation_and_synapse(self):
-        """Contract 5: Translation comes before Synapse in the fixed order.
+    def test_order_translation_and_synapse(self):
+        """Contract 5: Ordering follows mapping insertion order.
 
-        DATA ASSUMPTION: Only Translation and Synapse categories present.
+        DATA ASSUMPTION: Synapse appears before Translation in mapping.
         """
         cohort = _make_cohort({
             "mutA": {
@@ -733,8 +733,8 @@ class TestSelectCherryPickedTermsCategoryOrder:
         result = select_cherry_picked_terms(cohort, term_to_category)
 
         assert len(result) == 2
-        assert result[0].category_name == "Translation"
-        assert result[1].category_name == "Synapse"
+        assert result[0].category_name == "Synapse"
+        assert result[1].category_name == "Translation"
 
     def test_single_category_returned(self):
         """Contract 5: When only one category has terms, a single-element list
@@ -790,11 +790,10 @@ class TestSelectCherryPickedTermsEmptyCategoryOmission:
 class TestSelectCherryPickedTermsInvariants:
     """Test post-condition invariants from the blueprint."""
 
-    def test_all_category_names_are_valid(self):
-        """Invariant: All category names must be one of the four specified
-        categories.
+    def test_all_category_names_match_mapping(self):
+        """Invariant: All returned category names come from the mapping.
 
-        DATA ASSUMPTION: A cohort with terms in all four categories.
+        DATA ASSUMPTION: A cohort with terms in four categories.
         """
         cohort = _make_cohort({
             "mutA": {
@@ -812,18 +811,37 @@ class TestSelectCherryPickedTermsInvariants:
         }
         result = select_cherry_picked_terms(cohort, term_to_category)
 
-        valid_categories = {"Mitochondria", "Translation", "GPCR", "Synapse"}
+        expected_categories = set(term_to_category.values())
         for group in result:
-            assert group.category_name in valid_categories, (
-                f"Category '{group.category_name}' is not one of the four "
-                f"valid categories: {valid_categories}"
+            assert group.category_name in expected_categories, (
+                f"Category '{group.category_name}' is not in the mapping"
             )
 
-    def test_at_most_four_groups(self):
-        """Invariant: At most four category groups are returned.
+    def test_arbitrary_category_names_accepted(self):
+        """Categories are not restricted to a fixed set -- any name works.
 
-        DATA ASSUMPTION: Even with many terms, there are only four possible
-        categories, so at most four groups.
+        DATA ASSUMPTION: A cohort with terms mapped to custom categories.
+        """
+        cohort = _make_cohort({
+            "mutA": {
+                "PROTEASOME COMPLEX": 2.0,
+                "RIBOSOME ASSEMBLY": 1.5,
+            },
+        })
+        term_to_category = {
+            "PROTEASOME COMPLEX": "Proteasome",
+            "RIBOSOME ASSEMBLY": "Translation",
+        }
+        result = select_cherry_picked_terms(cohort, term_to_category)
+        assert len(result) == 2
+        category_names = [g.category_name for g in result]
+        assert "Proteasome" in category_names
+        assert "Translation" in category_names
+
+    def test_group_count_matches_distinct_categories(self):
+        """Number of groups matches the number of distinct categories with matching terms.
+
+        DATA ASSUMPTION: Multiple terms per category.
         """
         cohort = _make_cohort({
             "mutA": {
@@ -840,7 +858,7 @@ class TestSelectCherryPickedTermsInvariants:
             "S1": "Synapse", "S2": "Synapse",
         }
         result = select_cherry_picked_terms(cohort, term_to_category)
-        assert len(result) <= 4
+        assert len(result) == 4
 
     def test_no_empty_groups(self):
         """Invariant: Empty categories are omitted (all groups have > 0 terms).
@@ -1425,42 +1443,34 @@ class TestMixedSignNESSorting:
         assert result[0].term_names == ["TERM_MIXED", "TERM_CONSISTENT"]
 
 
-class TestInvalidCategoryNameExcludedFromOutput:
-    """Test that terms mapped to a category name not in the fixed four categories
-    are excluded from the output.
+class TestArbitraryCategoryNamesInOutput:
+    """Test that any user-defined category name is accepted in the output.
 
-    The blueprint invariant states all category names must be one of:
-    Mitochondria, Translation, GPCR, Synapse. Contract 5 states categories
-    are returned in the fixed order and categories with zero matching terms
-    are omitted. Terms mapped to a non-standard category are never iterated
-    by the fixed-order loop, so they should be silently excluded.
+    Category names are not restricted to a fixed set. Any category name
+    from the mapping file is valid and will appear in the output if it
+    has matching terms.
     """
 
-    def test_terms_with_invalid_category_excluded(self):
-        """Invariant + Contract 5: A term mapped to 'InvalidCategory' should
-        not appear in the output, and only terms in valid categories appear.
+    def test_custom_category_name_appears_in_output(self):
+        """Any category name from the mapping is accepted.
 
-        DATA ASSUMPTION: TERM_VALID is mapped to 'Mitochondria' (valid),
-        TERM_INVALID is mapped to 'CellCycle' (not a valid category).
-        Only TERM_VALID should appear in the output.
+        DATA ASSUMPTION: TERM_A is mapped to 'Mitochondria',
+        TERM_B is mapped to 'CellCycle' (a custom category).
+        Both should appear in the output.
         """
         cohort = _make_cohort({
             "mutA": {
-                "TERM_VALID": 2.0,
-                "TERM_INVALID": 3.0,
+                "TERM_A": 2.0,
+                "TERM_B": 3.0,
             },
         })
         term_to_category = {
-            "TERM_VALID": "Mitochondria",
-            "TERM_INVALID": "CellCycle",  # not one of the four valid categories
+            "TERM_A": "Mitochondria",
+            "TERM_B": "CellCycle",
         }
         result = select_cherry_picked_terms(cohort, term_to_category)
 
-        assert len(result) == 1
-        assert result[0].category_name == "Mitochondria"
-        assert result[0].term_names == ["TERM_VALID"]
-        # TERM_INVALID should not appear anywhere in the output
-        all_terms = []
-        for g in result:
-            all_terms.extend(g.term_names)
-        assert "TERM_INVALID" not in all_terms
+        assert len(result) == 2
+        category_names = [g.category_name for g in result]
+        assert "Mitochondria" in category_names
+        assert "CellCycle" in category_names
