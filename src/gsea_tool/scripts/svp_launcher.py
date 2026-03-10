@@ -91,8 +91,8 @@ def _run() -> None:
     parser = build_argument_parser()
     args = parser.parse_args()
 
-    # Resolve project directory as the current working directory
-    project_dir = Path.cwd()
+    # Resolve project directory as the directory containing this script
+    project_dir = Path(__file__).resolve().parent.parent.parent
 
     # Resolve paths
     data_dir, output_dir, cache_dir, mapping_path = resolve_paths(
