@@ -1,48 +1,195 @@
 # GSEA Proteomics Visualizer
 
-A command-line tool for generating publication-quality cohort-level summary figures from GSEA preranked output, designed for Drosophila melanogaster ASD proteomics studies.
+## 1. Problem and Purpose
 
-## Overview
+Researchers studying Autism Spectrum Disorder (ASD) using Drosophila melanogaster fly models run Gene Set Enrichment Analysis (GSEA) on each mutant line independently. This produces per-mutant enrichment results across hundreds of Gene Ontology (GO) biological pathways. No existing tool assembles these per-mutant outputs into a single cohort-level summary figure suitable for manuscript submission.
 
-This tool ingests per-mutant GSEA preranked output files, performs cohort-level meta-analysis, and produces three figures:
+This tool fills that gap. It reads GSEA output files from an arbitrary number of mutant subfolders, identifies which biological processes are consistently enriched or depleted across the cohort, and produces three publication-quality figures:
 
-- **Figure 1** (optional): Hypothesis-driven dot plot showing GO terms from user-specified biological categories
-- **Figure 2**: Unbiased dot plot showing the top data-driven GO terms grouped by hierarchical clustering
-- **Figure 3**: Meta-analysis bar plot showing representative dysregulated pathways from Fisher's combined probability test
+- **Figure 1** (optional): A hypothesis-driven dot plot grouping user-curated GO terms into biologically motivated categories. Categories can be specified either via a mapping TSV file or via `cherry_pick_categories` in `config.yaml` (which uses GO ontology ancestry resolution).
+- **Figure 2** (always produced): An unbiased dot plot using data-driven GO term selection and unsupervised clustering, requiring no prior biological knowledge.
+- **Figure 3** (always produced): A horizontal bar plot summarizing cohort-level pathway dysregulation using Fisher's combined probability method.
 
-## Installation
+The dot plot format is modeled on Figure 3a of Gordon et al. 2024 to enable direct visual comparison between fly proteomics data and human transcriptomics findings. All figures are produced in PDF, PNG, and SVG formats, ready for journal submission without post-processing.
 
-### Using conda (recommended)
+## 2. Intended Users and Needs
+
+This tool is designed for proteomics researchers in academic biology laboratories working on Drosophila models of ASD. Users have strong expertise in fly genetics, proteomics workflows, and GSEA interpretation, but are not professional software developers.
+
+The tool meets the following user needs:
+
+- Visualize whether a mutant cohort converges on shared biological pathways at the protein level, in a format directly comparable to published literature.
+- Aggregate evidence across all mutant lines using a principled statistical method (Fisher's combined probability test).
+- Reduce redundancy among top pathways using GO semantic similarity clustering.
+- Generate manuscript-ready figure legends and materials-and-methods text automatically.
+- Operate through a clean command-line interface and optional YAML configuration file, with no need to modify source code.
+
+## 3. Assumptions and Limitations
+
+**Operating environment assumptions:**
+
+- Python 3.11 or later is required.
+- The Conda package manager is required for environment setup.
+- The tool reads GSEA preranked output files; it does not perform GSEA itself.
+- Input data must be organized in a `data/` subdirectory of the project directory. Each mutant has its own subfolder named `<mutant_id>.GseaPreranked.<timestamp>`.
+- Each mutant subfolder must contain exactly one positive enrichment TSV (`gsea_report_for_na_pos_*.tsv`) and one negative enrichment TSV (`gsea_report_for_na_neg_*.tsv`).
+- A minimum of 2 mutant lines with valid data is required.
+
+**Known limitations:**
+
+- The tool does not perform GSEA itself. It only consumes existing GSEA preranked output.
+- The meta-analysis (Fisher's method) is not directional -- it combines nominal p-values regardless of the sign of enrichment.
+- GO semantic similarity clustering (for Figure 3) requires downloading the GO ontology file and the Drosophila GAF annotation file from the internet on first use. A network connection is required unless cached files are already present in the `cache/` directory.
+- The tool handles GO terms from all three GO namespaces (Biological Process, Cellular Component, Molecular Function) without filtering.
+- Interactive HTML output is not supported.
+- Non-GO gene set databases (KEGG, Reactome) are not supported.
+
+## 4. Installation Instructions
+
+### Prerequisites
+
+Conda must be installed. Download Miniconda from https://docs.conda.io/en/latest/miniconda.html if not already installed.
+
+### macOS
 
 ```bash
+# 1. Clone or download the repository
+git clone <repository-url>
+cd GSEAV2
+
+# 2. Create the conda environment
 conda env create -f environment.yml
+
+# 3. Activate the environment
 conda activate gseav2
+
+# 4. Install the package
 pip install -e .
+
+# 5. Verify installation
+gsea-tool --help
 ```
 
-### Using pip
+### Linux
 
 ```bash
+# 1. Clone or download the repository
+git clone <repository-url>
+cd GSEAV2
+
+# 2. Create the conda environment
+conda env create -f environment.yml
+
+# 3. Activate the environment
+conda activate gseav2
+
+# 4. Install the package
 pip install -e .
+
+# 5. Verify installation
+gsea-tool --help
 ```
 
-## Usage
+### Windows
 
-Run the tool from your project directory (the directory containing your `data/` folder):
+```
+# Open Anaconda Prompt (not regular Command Prompt)
+
+# 1. Clone or download the repository
+git clone <repository-url>
+cd GSEAV2
+
+# 2. Create the conda environment
+conda env create -f environment.yml
+
+# 3. Activate the environment
+conda activate gseav2
+
+# 4. Install the package
+pip install -e .
+
+# 5. Verify installation
+gsea-tool --help
+```
+
+**Note for Windows users:** Use forward slashes or double backslashes in file paths when specifying the mapping file argument.
+
+## 5. Usage
+
+### Directory Setup
+
+Before running, organize your data directory as follows:
+
+```
+your-project-directory/
+    data/
+        mutant_A.GseaPreranked.1234567890/
+            gsea_report_for_na_pos_1234567890.tsv
+            gsea_report_for_na_neg_1234567890.tsv
+        mutant_B.GseaPreranked.1234567890/
+            gsea_report_for_na_pos_1234567890.tsv
+            gsea_report_for_na_neg_1234567890.tsv
+    category_mapping.tsv  (optional, for Figure 1 via TSV path)
+    config.yaml           (optional, for custom settings)
+```
+
+### Running the Tool
+
+**Produce Figure 2 and Figure 3 only (no mapping file):**
 
 ```bash
-# Produce Figure 2 and Figure 3 only (unbiased + meta-analysis)
+cd your-project-directory
+conda activate gseav2
 gsea-tool
-
-# Also produce Figure 1 using a category mapping TSV file
-gsea-tool path/to/category_mapping.tsv
 ```
 
-The tool expects a `data/` directory containing one subdirectory per mutant line. Each mutant subdirectory name must follow the format `<mutant_id>.GseaPreranked.<timestamp>` and must contain exactly one positive and one negative GSEA report TSV file.
+**Produce all three figures (with mapping file for Figure 1):**
 
-Output files are written to `output/` in the current working directory.
+```bash
+cd your-project-directory
+conda activate gseav2
+gsea-tool category_mapping.tsv
+```
 
-## Input Data Format
+**Produce Figure 1 via ontology resolution (no mapping file needed):**
+
+Add `cherry_pick` entries to `config.yaml` with GO term IDs and labels. The tool will resolve descendant terms from the GO ontology automatically. See `config.yaml.example` for the format.
+
+### Category Mapping File Format (for Figure 1)
+
+The mapping file is a two-column TSV (tab-separated) with GO term name in the first column and category name in the second:
+
+```
+MITOCHONDRIAL RESPIRATORY CHAIN COMPLEX ASSEMBLY    Mitochondria
+CYTOPLASMIC TRANSLATION    Translation
+G PROTEIN-COUPLED RECEPTOR SIGNALING PATHWAY    GPCR
+SYNAPSE ORGANIZATION    Synapse
+```
+
+Lines starting with `#` are treated as comments. Category names must be one of: Mitochondria, Translation, GPCR, Synapse.
+
+**Note:** If both `cherry_pick_categories` in `config.yaml` and a mapping TSV file are provided, the config-based ontology approach takes precedence and a warning is printed to stderr.
+
+### Output
+
+All outputs are written to `output/` in the project directory:
+
+- `figure1_cherry_picked.{pdf,png,svg}` -- hypothesis-driven dot plot (if mapping file or cherry_pick config provided)
+- `figure2_unbiased.{pdf,png,svg}` -- data-driven dot plot
+- `figure3_meta_analysis.{pdf,png,svg}` -- meta-analysis bar plot
+- `pvalue_matrix.tsv` -- raw p-value matrix for all GO terms
+- `fisher_combined_pvalues.tsv` -- Fisher combined p-values with cluster assignments
+- `notes.md` -- figure legends and materials-and-methods text for manuscript
+
+On success, the tool prints a summary to the terminal showing the number of mutants processed and the output file paths.
+
+## 6. Configuration
+
+Create a `config.yaml` file in your project directory to customize parameters. If no `config.yaml` is present, all defaults are used.
+
+See `config.yaml.example` for a fully documented example with all available options and their defaults. The generated `notes.md` in the output directory also contains a full configuration guide.
+
+## 7. Input Data Format
 
 Each mutant subfolder must contain:
 - `gsea_report_for_na_pos_*.tsv` -- positive enrichment report
@@ -50,7 +197,7 @@ Each mutant subfolder must contain:
 
 These are standard GSEA preranked output files. The tool reads the NAME, NES, FDR q-val, NOM p-val, and SIZE columns.
 
-## Output Files
+## 8. Output Files
 
 The tool writes the following files to `output/`:
 
@@ -63,11 +210,7 @@ The tool writes the following files to `output/`:
 | `fisher_combined_pvalues.tsv` | Fisher combined p-values with cluster assignments |
 | `notes.md` | Figure legends, methods text, and reproducibility notes |
 
-## Configuration
-
-See `config.yaml.example` for a fully documented example with all available options and their defaults.
-
-## Requirements
+## 9. Requirements
 
 All dependencies are listed in `environment.yml`. The main requirements are:
 
@@ -78,6 +221,55 @@ All dependencies are listed in `environment.yml`. The main requirements are:
 - pyyaml >= 6.0
 - pytest >= 7.0 (for running tests)
 
-## Reference
+## 10. Tips
+
+- **Adjusting the FDR threshold:** Lower the default FDR threshold (0.05) to show fewer, more significant dots; raise it to show more. Edit `config.yaml`: `dot_plot: {fdr_threshold: 0.1}`.
+- **Changing the number of terms in Figure 2:** Edit `config.yaml`: `dot_plot: {top_n: 30}` to show 30 terms instead of 20.
+- **Disabling GO clustering for Figure 3:** Set `clustering: {enabled: false}` in `config.yaml` to skip the semantic similarity step and use raw top-N terms directly.
+- **Changing figure dimensions for Figure 3:** Edit `config.yaml`: `plot: {bar_figure_width: 12, bar_figure_height: 10}`.
+- **Caching ontology files:** The GO OBO file and Drosophila GAF file are downloaded once and cached in `cache/`. Re-runs use the cached files. Delete the cache directory to force a fresh download.
+- **Reproducibility:** The tool produces identical output for the same input and configuration. The random seed is fixed at 42 by default and recorded in `notes.md`.
+- **Category mapping case:** GO term names in the mapping file are matched case-insensitively against the GSEA results. Upper or lower case both work.
+
+## 11. Troubleshooting
+
+**"data/ directory does not exist" error:**
+You must invoke the tool from the directory that contains the `data/` folder, not from inside `data/` or from the parent directory. Run `ls` to confirm `data/` is present in the current directory.
+
+**"Insufficient mutant lines" error:**
+The tool requires at least 2 mutant lines with valid data. Check that your `data/` directory contains at least 2 subfolders named `<id>.GseaPreranked.*`.
+
+**"Missing positive report file" or "Missing negative report file":**
+Each mutant subfolder must contain exactly one file matching `gsea_report_for_na_pos_*.tsv` and one matching `gsea_report_for_na_neg_*.tsv`. Check the file names in the subfolder.
+
+**"No GO terms pass the FDR threshold" (Figure 2 fails):**
+The default FDR threshold is 0.05. If your data has few significant terms, try relaxing the threshold in `config.yaml`: `dot_plot: {fdr_threshold: 0.25}`.
+
+**"No GO terms have combined p-value below the pre-filter threshold" (clustering fails):**
+This means no GO terms reached Fisher-combined p < 0.05. Try disabling clustering: set `clustering: {enabled: false}` in `config.yaml`.
+
+**Download failure for OBO or GAF files:**
+The tool requires internet access for the first run. If behind a firewall, manually download the files:
+- GO OBO: https://current.geneontology.org/ontology/go-basic.obo -> save to `cache/go-basic.obo`
+- GAF: http://current.geneontology.org/annotations/fb.gaf.gz -> save to `cache/fb.gaf.gz`
+
+**ImportError or ModuleNotFoundError:**
+Ensure the conda environment is activated (`conda activate gseav2`) and the package is installed (`pip install -e .`). Run `conda env list` to confirm the environment exists.
+
+**Wrong Python version:**
+The tool requires Python 3.11. Run `python --version` to check. If incorrect, ensure the conda environment is activated.
+
+**config.yaml type errors:**
+All config values must be the correct type. Write `fdr_threshold: 0.05` (number), not `fdr_threshold: "0.05"` (string). Boolean values must be `true` or `false` (lowercase, no quotes).
+
+## 12. Reference
 
 Figure format modeled on: Gordon et al. 2024, Figure 3a.
+
+## 13. License
+
+This software is distributed under the MIT License.
+
+See the LICENSE file for the full license text.
+
+Copyright (c) 2026
