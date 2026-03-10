@@ -15,7 +15,7 @@ This tool ingests per-mutant GSEA preranked output files, performs cohort-level 
 ### Using conda (recommended)
 
 ```bash
-conda create -n gseav2 python=3.11
+conda env create -f environment.yml
 conda activate gseav2
 pip install -e .
 ```
@@ -42,39 +42,6 @@ The tool expects a `data/` directory containing one subdirectory per mutant line
 
 Output files are written to `output/` in the current working directory.
 
-## Configuration
-
-Create a `config.yaml` file in your project directory to customize parameters. If no `config.yaml` is present, all defaults are used.
-
-Example `config.yaml`:
-
-```yaml
-cherry_pick:
-  - go_id: "GO:0005739"
-    label: "Mitochondria"
-  - go_id: "GO:0006412"
-    label: "Translation"
-
-dot_plot:
-  fdr_threshold: 0.05
-  top_n: 20
-  n_groups: 4
-
-fisher:
-  prefilter_pvalue: 0.05
-  top_n_bars: 20
-
-clustering:
-  enabled: true
-  similarity_threshold: 0.7
-
-plot:
-  dpi: 300
-  font_family: Arial
-```
-
-See the generated `notes.md` in the output directory for a full configuration guide.
-
 ## Input Data Format
 
 Each mutant subfolder must contain:
@@ -96,13 +63,20 @@ The tool writes the following files to `output/`:
 | `fisher_combined_pvalues.tsv` | Fisher combined p-values with cluster assignments |
 | `notes.md` | Figure legends, methods text, and reproducibility notes |
 
+## Configuration
+
+See `config.yaml.example` for a fully documented example with all available options and their defaults.
+
 ## Requirements
+
+All dependencies are listed in `environment.yml`. The main requirements are:
 
 - Python >= 3.11
 - matplotlib >= 3.7
 - numpy >= 1.24
 - scipy >= 1.10
 - pyyaml >= 6.0
+- pytest >= 7.0 (for running tests)
 
 ## Reference
 
