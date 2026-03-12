@@ -590,7 +590,7 @@ class TestIngestionToFisherAnalysis:
         """Zero NOM p-values from ingestion are replaced with pseudocount
         before Fisher computation, preventing log(0) errors."""
         config = FisherConfig(pseudocount=1e-10)
-        per_mutant = build_pvalue_dict_per_mutant(cohort, config.pseudocount)
+        per_mutant, _ = build_pvalue_dict_per_mutant(cohort, config.pseudocount)
 
         # Check that no p-value is exactly 0.0
         for mutant_id, pvals in per_mutant.items():
@@ -603,7 +603,7 @@ class TestIngestionToFisherAnalysis:
     def test_missing_terms_imputed_as_one_in_pvalue_matrix(self, cohort):
         """GO terms not present in a mutant are imputed as p=1.0 in the
         p-value matrix, ensuring Fisher's test handles missing data correctly."""
-        per_mutant = build_pvalue_dict_per_mutant(cohort, pseudocount=1e-10)
+        per_mutant, _ = build_pvalue_dict_per_mutant(cohort, pseudocount=1e-10)
         matrix, go_id_order = build_pvalue_matrix(per_mutant, cohort.mutant_ids)
 
         # CHROMATIN BINDING (GO:0003682) is only in gamma
@@ -620,7 +620,7 @@ class TestIngestionToFisherAnalysis:
         the combined p-value should match the chi-squared survival function."""
         from scipy.stats import chi2
 
-        per_mutant = build_pvalue_dict_per_mutant(cohort, pseudocount=1e-10)
+        per_mutant, _ = build_pvalue_dict_per_mutant(cohort, pseudocount=1e-10)
         matrix, go_id_order = build_pvalue_matrix(per_mutant, cohort.mutant_ids)
 
         # PEROXISOME (GO:0005777) is present in all 3 mutants
@@ -1313,7 +1313,7 @@ class TestMergeConflictResolution:
                               [], "002")
 
         cohort = ingest_data(data_dir)
-        per_mutant = build_pvalue_dict_per_mutant(cohort, pseudocount=1e-10)
+        per_mutant, _ = build_pvalue_dict_per_mutant(cohort, pseudocount=1e-10)
 
         # The retained p-value for m1 should be 0.002 (from neg), not 0.1 (from pos)
         assert abs(per_mutant["m1"]["GO:0005739"] - 0.002) < 1e-12
@@ -1427,7 +1427,7 @@ class TestEmergentBehavior:
         assert nes_matrix[0][beta_idx] is None
 
         # Fisher: should be 1.0 for alpha and beta
-        per_mutant = build_pvalue_dict_per_mutant(cohort, pseudocount=1e-10)
+        per_mutant, _ = build_pvalue_dict_per_mutant(cohort, pseudocount=1e-10)
         matrix, go_id_order = build_pvalue_matrix(per_mutant, cohort.mutant_ids)
 
         go_idx = go_id_order.index("GO:0003682")

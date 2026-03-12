@@ -19,13 +19,13 @@ class FisherResult:
     corrected_pvalues: dict[str, float] | None
     ...
 
-def build_pvalue_dict_per_mutant(cohort: CohortData, pseudocount: float) -> dict[str, dict[str, float]]:
-    """Build per-mutant {GO_ID: nom_pval} dictionaries from ingested data.
+def build_pvalue_dict_per_mutant(cohort: CohortData, pseudocount: float) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]]]:
+    """Build per-mutant {GO_ID: nom_pval} and {GO_ID: NES} dictionaries from ingested data.
 
     Replaces NOM p-val of 0.0 with pseudocount. Skips records with missing
     or non-numeric NOM p-val (already filtered during ingestion).
 
-    Returns dict mapping mutant_id -> {go_id: nom_pval}.
+    Returns tuple of (pval_dict, nes_dict) where each maps mutant_id -> {go_id: value}.
     """
     ...
 
@@ -60,7 +60,7 @@ def run_fisher_analysis(cohort: CohortData, config: FisherConfig, output_dir: Pa
     """
     ...
 
-def write_pvalue_matrix_tsv(matrix: np.ndarray, go_id_order: list[str], go_id_to_name: dict[str, str], mutant_ids: list[str], output_dir: Path) -> Path:
+def write_pvalue_matrix_tsv(matrix: np.ndarray, nes_matrix: np.ndarray, go_id_order: list[str], go_id_to_name: dict[str, str], mutant_ids: list[str], output_dir: Path) -> Path:
     """Write the p-value matrix to pvalue_matrix.tsv."""
     ...
 

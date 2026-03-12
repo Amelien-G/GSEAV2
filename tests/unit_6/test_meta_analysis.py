@@ -40,6 +40,7 @@ from gsea_tool.data_ingestion import CohortData, MutantProfile, TermRecord
 from gsea_tool.configuration import FisherConfig
 from gsea_tool.meta_analysis import (
     FisherResult,
+    build_nes_matrix,
     build_pvalue_dict_per_mutant,
     build_pvalue_matrix,
     compute_fisher_combined,
@@ -209,7 +210,7 @@ class TestFunctionSignatures:
     def test_write_pvalue_matrix_tsv_signature(self):
         sig = inspect.signature(write_pvalue_matrix_tsv)
         params = list(sig.parameters.keys())
-        assert params == ["matrix", "go_id_order", "go_id_to_name", "mutant_ids", "output_dir"]
+        assert params == ["matrix", "nes_matrix", "go_id_order", "go_id_to_name", "mutant_ids", "output_dir"]
 
     def test_write_fisher_results_tsv_signature(self):
         sig = inspect.signature(write_fisher_results_tsv)
@@ -229,7 +230,7 @@ class TestBuildPvalueDictPerMutant:
         """Contract 1: Returns per-mutant {GO_ID: nom_pval} dicts."""
         cohort = _make_cohort()
         pseudocount = 1e-10
-        result = build_pvalue_dict_per_mutant(cohort, pseudocount)
+        result, _ = build_pvalue_dict_per_mutant(cohort, pseudocount)
 
         assert isinstance(result, dict)
         assert set(result.keys()) == set(cohort.mutant_ids)
@@ -238,7 +239,7 @@ class TestBuildPvalueDictPerMutant:
         """Contract 1: Inner dicts keyed by GO ID with nom_pval values."""
         cohort = _make_cohort()
         pseudocount = 1e-10
-        result = build_pvalue_dict_per_mutant(cohort, pseudocount)
+        result, _ = build_pvalue_dict_per_mutant(cohort, pseudocount)
 
         for mutant_id, pval_dict in result.items():
             assert isinstance(pval_dict, dict)
@@ -260,7 +261,7 @@ class TestBuildPvalueDictPerMutant:
             },
         })
         pseudocount = 1e-10
-        result = build_pvalue_dict_per_mutant(cohort, pseudocount)
+        result, _ = build_pvalue_dict_per_mutant(cohort, pseudocount)
 
         assert result["mutantA"]["GO:0000001"] == pytest.approx(0.03)
         assert result["mutantA"]["GO:0000002"] == pytest.approx(0.15)
@@ -277,7 +278,7 @@ class TestBuildPvalueDictPerMutant:
             },
         })
         pseudocount = 1e-10
-        result = build_pvalue_dict_per_mutant(cohort, pseudocount)
+        result, _ = build_pvalue_dict_per_mutant(cohort, pseudocount)
 
         assert result["mutantA"]["GO:0000001"] == pytest.approx(pseudocount)
 
@@ -292,7 +293,7 @@ class TestBuildPvalueDictPerMutant:
             },
         })
         custom_pseudocount = 1e-5
-        result = build_pvalue_dict_per_mutant(cohort, custom_pseudocount)
+        result, _ = build_pvalue_dict_per_mutant(cohort, custom_pseudocount)
 
         assert result["mutantA"]["GO:0000001"] == pytest.approx(custom_pseudocount)
 
@@ -307,7 +308,7 @@ class TestBuildPvalueDictPerMutant:
             },
         })
         pseudocount = 1e-10
-        result = build_pvalue_dict_per_mutant(cohort, pseudocount)
+        result, _ = build_pvalue_dict_per_mutant(cohort, pseudocount)
 
         assert result["mutantA"]["GO:0000001"] == pytest.approx(0.001)
         assert result["mutantB"]["GO:0000001"] == pytest.approx(0.05)
@@ -325,7 +326,7 @@ class TestBuildPvalueDictPerMutant:
             },
         })
         pseudocount = 1e-10
-        result = build_pvalue_dict_per_mutant(cohort, pseudocount)
+        result, _ = build_pvalue_dict_per_mutant(cohort, pseudocount)
 
         assert result["mutantA"]["GO:0000001"] == pytest.approx(pseudocount)
         assert result["mutantA"]["GO:0000002"] == pytest.approx(pseudocount)
@@ -803,31 +804,34 @@ class TestWritePvalueMatrixTsv:
     def test_returns_path(self, tmp_path):
         """write_pvalue_matrix_tsv returns a Path."""
         matrix = np.array([[0.01, 0.02], [0.03, 0.04]])
+        nes_matrix = np.full(matrix.shape, np.nan)
         go_id_order = ["GO:0000001", "GO:0000002"]
         go_id_to_name = {"GO:0000001": "TERM1", "GO:0000002": "TERM2"}
         mutant_ids = ["mutantA", "mutantB"]
 
-        result = write_pvalue_matrix_tsv(matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
+        result = write_pvalue_matrix_tsv(matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
         assert isinstance(result, Path)
 
     def test_file_created(self, tmp_path):
         """The TSV file is created on disk."""
         matrix = np.array([[0.01, 0.02], [0.03, 0.04]])
+        nes_matrix = np.full(matrix.shape, np.nan)
         go_id_order = ["GO:0000001", "GO:0000002"]
         go_id_to_name = {"GO:0000001": "TERM1", "GO:0000002": "TERM2"}
         mutant_ids = ["mutantA", "mutantB"]
 
-        path = write_pvalue_matrix_tsv(matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
+        path = write_pvalue_matrix_tsv(matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
         assert path.exists()
 
     def test_file_is_tsv(self, tmp_path):
         """The output file contains tab-separated data."""
         matrix = np.array([[0.01, 0.02], [0.03, 0.04]])
+        nes_matrix = np.full(matrix.shape, np.nan)
         go_id_order = ["GO:0000001", "GO:0000002"]
         go_id_to_name = {"GO:0000001": "TERM1", "GO:0000002": "TERM2"}
         mutant_ids = ["mutantA", "mutantB"]
 
-        path = write_pvalue_matrix_tsv(matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
+        path = write_pvalue_matrix_tsv(matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
         content = path.read_text()
         lines = content.strip().split("\n")
         # Should have a header + n_go_terms data rows
@@ -840,6 +844,7 @@ class TestWritePvalueMatrixTsv:
         """File has header + one row per GO term."""
         # DATA ASSUMPTION: 3 GO terms x 2 mutants
         matrix = np.array([[0.01, 0.02], [0.03, 0.04], [0.05, 0.06]])
+        nes_matrix = np.full(matrix.shape, np.nan)
         go_id_order = ["GO:0000001", "GO:0000002", "GO:0000003"]
         go_id_to_name = {
             "GO:0000001": "TERM1",
@@ -848,7 +853,7 @@ class TestWritePvalueMatrixTsv:
         }
         mutant_ids = ["mutantA", "mutantB"]
 
-        path = write_pvalue_matrix_tsv(matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
+        path = write_pvalue_matrix_tsv(matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
         content = path.read_text()
         lines = [l for l in content.strip().split("\n") if l.strip()]
         # At minimum: header + 3 data rows
@@ -922,6 +927,7 @@ class TestErrorConditions:
     def test_write_pvalue_matrix_tsv_oserror(self):
         """Error condition: OSError on write failure for pvalue_matrix.tsv."""
         matrix = np.array([[0.01, 0.02]])
+        nes_matrix = np.full(matrix.shape, np.nan)
         go_id_order = ["GO:0000001"]
         go_id_to_name = {"GO:0000001": "TERM1"}
         mutant_ids = ["mutantA", "mutantB"]
@@ -929,7 +935,7 @@ class TestErrorConditions:
         # Use a non-existent directory that can't be written to
         bad_dir = Path("/nonexistent/path/that/does/not/exist")
         with pytest.raises(OSError):
-            write_pvalue_matrix_tsv(matrix, go_id_order, go_id_to_name, mutant_ids, bad_dir)
+            write_pvalue_matrix_tsv(matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, bad_dir)
 
     def test_write_fisher_results_tsv_oserror(self):
         """Error condition: OSError on write failure for fisher_results.tsv."""
@@ -1010,7 +1016,7 @@ class TestEndToEndConsistency:
         config = FisherConfig(pseudocount=pseudocount, apply_fdr=False)
 
         # Step-by-step
-        per_mutant = build_pvalue_dict_per_mutant(cohort, pseudocount)
+        per_mutant, _ = build_pvalue_dict_per_mutant(cohort, pseudocount)
         matrix, go_id_order = build_pvalue_matrix(per_mutant, cohort.mutant_ids)
         combined = compute_fisher_combined(matrix, n_mutants=len(cohort.mutant_ids))
 

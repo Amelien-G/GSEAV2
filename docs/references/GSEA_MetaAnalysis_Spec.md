@@ -167,7 +167,7 @@ Either:
 If enabled via configuration:
 
 - `fisher_combined_pvalues.tsv` — Full table of GO terms with combined p-values, number of contributing lines, and cluster assignments.
-- `pvalue_matrix.tsv` — The raw GO term × mutant line p-value matrix before combination.
+- `pvalue_matrix.tsv` — The raw GO term × mutant line p-value matrix before combination, with interleaved NES columns for each mutant.
 
 ---
 

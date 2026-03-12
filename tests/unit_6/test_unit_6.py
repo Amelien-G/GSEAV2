@@ -130,7 +130,7 @@ class TestBuildPvalueDictPerMutant:
 
     def test_keys_are_go_ids_not_term_names(self, simple_cohort):
         """Contract 1: Per-mutant p-value dicts are keyed by GO ID, not term name."""
-        result = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
+        result, _ = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
         for mutant_id, pval_dict in result.items():
             for key in pval_dict:
                 assert key.startswith("GO:"), (
@@ -139,12 +139,12 @@ class TestBuildPvalueDictPerMutant:
 
     def test_returns_dict_for_each_mutant(self, simple_cohort):
         """Verify that the result contains one entry per mutant."""
-        result = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
+        result, _ = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
         assert set(result.keys()) == {"mutantA", "mutantB"}
 
     def test_correct_pvalues_extracted(self, simple_cohort):
         """Verify that p-values are correctly extracted from TermRecords."""
-        result = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
+        result, _ = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
         assert result["mutantA"]["GO:0000001"] == pytest.approx(0.01)
         assert result["mutantA"]["GO:0000002"] == pytest.approx(0.05)
         assert result["mutantB"]["GO:0000001"] == pytest.approx(0.03)
@@ -153,19 +153,19 @@ class TestBuildPvalueDictPerMutant:
     def test_zero_pval_replaced_with_pseudocount(self, cohort_with_zero_pval):
         """Contract 2: NOM p-val of exactly 0.0 is replaced with pseudocount."""
         pseudocount = 1e-10
-        result = build_pvalue_dict_per_mutant(cohort_with_zero_pval, pseudocount=pseudocount)
+        result, _ = build_pvalue_dict_per_mutant(cohort_with_zero_pval, pseudocount=pseudocount)
         # mutantA had 0.0 for GO:0000001
         assert result["mutantA"]["GO:0000001"] == pytest.approx(pseudocount)
 
     def test_zero_pval_replaced_with_custom_pseudocount(self, cohort_with_zero_pval):
         """Contract 2: Pseudocount is configurable, not hardcoded."""
         custom_pseudocount = 1e-5
-        result = build_pvalue_dict_per_mutant(cohort_with_zero_pval, pseudocount=custom_pseudocount)
+        result, _ = build_pvalue_dict_per_mutant(cohort_with_zero_pval, pseudocount=custom_pseudocount)
         assert result["mutantA"]["GO:0000001"] == pytest.approx(custom_pseudocount)
 
     def test_nonzero_pval_not_replaced(self, cohort_with_zero_pval):
         """Contract 2: Only exactly 0.0 is replaced; other values are left as-is."""
-        result = build_pvalue_dict_per_mutant(cohort_with_zero_pval, pseudocount=1e-10)
+        result, _ = build_pvalue_dict_per_mutant(cohort_with_zero_pval, pseudocount=1e-10)
         # mutantB has 0.01 for GO:0000001 -- should remain 0.01
         assert result["mutantB"]["GO:0000001"] == pytest.approx(0.01)
         # mutantA has 0.05 for GO:0000002 -- should remain 0.05
@@ -181,7 +181,7 @@ class TestBuildPvalueMatrix:
 
     def test_matrix_shape_matches_go_terms_by_mutants(self, simple_cohort):
         """Contract 3: Matrix has shape (n_GO_terms, n_mutants)."""
-        per_mutant = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
+        per_mutant, _ = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
         matrix, go_id_order = build_pvalue_matrix(per_mutant, simple_cohort.mutant_ids)
         # 3 unique GO terms, 2 mutants
         assert matrix.shape == (3, 2)
@@ -189,7 +189,7 @@ class TestBuildPvalueMatrix:
 
     def test_missing_entries_imputed_as_one(self, simple_cohort):
         """Contract 3: Missing entries are imputed as p = 1.0."""
-        per_mutant = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
+        per_mutant, _ = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
         matrix, go_id_order = build_pvalue_matrix(per_mutant, simple_cohort.mutant_ids)
         # GO:0000002 (APOPTOSIS) is missing from mutantB
         go_002_idx = go_id_order.index("GO:0000002")
@@ -202,7 +202,7 @@ class TestBuildPvalueMatrix:
 
     def test_present_entries_have_correct_values(self, simple_cohort):
         """Verify that present entries in the matrix have the correct p-values."""
-        per_mutant = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
+        per_mutant, _ = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
         matrix, go_id_order = build_pvalue_matrix(per_mutant, simple_cohort.mutant_ids)
         go_001_idx = go_id_order.index("GO:0000001")
         mutantA_idx = simple_cohort.mutant_ids.index("mutantA")
@@ -212,7 +212,7 @@ class TestBuildPvalueMatrix:
 
     def test_go_id_order_contains_union_of_all_go_ids(self, simple_cohort):
         """Contract 3: The union of all GO IDs is used for rows."""
-        per_mutant = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
+        per_mutant, _ = build_pvalue_dict_per_mutant(simple_cohort, pseudocount=1e-10)
         _, go_id_order = build_pvalue_matrix(per_mutant, simple_cohort.mutant_ids)
         assert set(go_id_order) == {"GO:0000001", "GO:0000002", "GO:0000003"}
 
@@ -440,11 +440,12 @@ class TestWritePvalueMatrixTsv:
     def test_write_pvalue_matrix_tsv_directly(self, tmp_path):
         """Test write_pvalue_matrix_tsv function directly."""
         matrix = np.array([[0.01, 0.03], [0.05, 1.0]])
+        nes_matrix = np.full(matrix.shape, np.nan)
         go_id_order = ["GO:0000001", "GO:0000002"]
         go_id_to_name = {"GO:0000001": "CELL CYCLE", "GO:0000002": "APOPTOSIS"}
         mutant_ids = ["mutantA", "mutantB"]
 
-        path = write_pvalue_matrix_tsv(matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
+        path = write_pvalue_matrix_tsv(matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
         assert path.exists()
         content = path.read_text()
         lines = content.splitlines()

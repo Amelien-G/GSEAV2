@@ -206,11 +206,12 @@ class TestPvalueMatrixTsvContent:
         """The TSV header should include mutant IDs as column names."""
         # DATA ASSUMPTION: 1 GO term, 2 mutants
         matrix = np.array([[0.01, 0.02]])
+        nes_matrix = np.full(matrix.shape, np.nan)
         go_id_order = ["GO:0000001"]
         go_id_to_name = {"GO:0000001": "SIGNAL TRANSDUCTION"}
         mutant_ids = ["mutantA", "mutantB"]
 
-        path = write_pvalue_matrix_tsv(matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
+        path = write_pvalue_matrix_tsv(matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
         content = path.read_text()
         header = content.strip().split("\n")[0]
 
@@ -221,11 +222,12 @@ class TestPvalueMatrixTsvContent:
         """Each data row should start with GO ID and term name."""
         # DATA ASSUMPTION: 2 GO terms, 2 mutants
         matrix = np.array([[0.01, 0.02], [0.03, 0.04]])
+        nes_matrix = np.full(matrix.shape, np.nan)
         go_id_order = ["GO:0000001", "GO:0000002"]
         go_id_to_name = {"GO:0000001": "CELL CYCLE", "GO:0000002": "APOPTOTIC PROCESS"}
         mutant_ids = ["mutantA", "mutantB"]
 
-        path = write_pvalue_matrix_tsv(matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
+        path = write_pvalue_matrix_tsv(matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
         content = path.read_text()
         lines = content.strip().split("\n")
 
@@ -246,11 +248,12 @@ class TestPvalueMatrixTsvContent:
     def test_returned_path_is_pvalue_matrix_tsv(self, tmp_path):
         """write_pvalue_matrix_tsv should return a path named pvalue_matrix.tsv."""
         matrix = np.array([[0.01, 0.02]])
+        nes_matrix = np.full(matrix.shape, np.nan)
         go_id_order = ["GO:0000001"]
         go_id_to_name = {"GO:0000001": "TERM_A"}
         mutant_ids = ["mutantA", "mutantB"]
 
-        path = write_pvalue_matrix_tsv(matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
+        path = write_pvalue_matrix_tsv(matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
         assert path.name == "pvalue_matrix.tsv"
 
 
@@ -426,7 +429,7 @@ class TestPvalueDictKeyedByGoIdNotTermName:
                 "TERM_ALPHA": ("GO:0000001", 0.02),
             },
         })
-        result = build_pvalue_dict_per_mutant(cohort, 1e-10)
+        result, _ = build_pvalue_dict_per_mutant(cohort, 1e-10)
 
         # mutantA should have 3 GO IDs as keys, not term names
         assert set(result["mutantA"].keys()) == {"GO:0000001", "GO:0000002", "GO:0000003"}
@@ -634,21 +637,22 @@ class TestPvalueMatrixTsvNumericValues:
         DATA ASSUMPTION: 2 GO terms, 2 mutants with known p-values.
         """
         matrix = np.array([[0.01, 0.02], [0.03, 0.04]])
+        nes_matrix = np.full(matrix.shape, np.nan)
         go_id_order = ["GO:0000001", "GO:0000002"]
         go_id_to_name = {"GO:0000001": "TERM_A", "GO:0000002": "TERM_B"}
         mutant_ids = ["mutantA", "mutantB"]
 
-        path = write_pvalue_matrix_tsv(matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
+        path = write_pvalue_matrix_tsv(matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, tmp_path)
         content = path.read_text()
         lines = content.strip().split("\n")
         data_lines = lines[1:]
 
-        # First data row: GO:0000001, TERM_A, 0.01, 0.02
+        # First data row: GO:0000001, TERM_A, mutantA_pval, mutantA_NES, mutantB_pval, mutantB_NES
         fields_0 = data_lines[0].split("\t")
-        assert float(fields_0[2]) == pytest.approx(0.01)
-        assert float(fields_0[3]) == pytest.approx(0.02)
+        assert float(fields_0[2]) == pytest.approx(0.01)  # mutantA_pval
+        assert float(fields_0[4]) == pytest.approx(0.02)  # mutantB_pval
 
-        # Second data row: GO:0000002, TERM_B, 0.03, 0.04
+        # Second data row: GO:0000002, TERM_B, ...
         fields_1 = data_lines[1].split("\t")
-        assert float(fields_1[2]) == pytest.approx(0.03)
-        assert float(fields_1[3]) == pytest.approx(0.04)
+        assert float(fields_1[2]) == pytest.approx(0.03)  # mutantA_pval
+        assert float(fields_1[4]) == pytest.approx(0.04)  # mutantB_pval

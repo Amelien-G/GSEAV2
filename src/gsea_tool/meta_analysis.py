@@ -26,25 +26,29 @@ class FisherResult:
 def build_pvalue_dict_per_mutant(
     cohort: CohortData,
     pseudocount: float,
-) -> dict[str, dict[str, float]]:
-    """Build per-mutant {GO_ID: nom_pval} dictionaries from ingested data.
+) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]]]:
+    """Build per-mutant {GO_ID: nom_pval} and {GO_ID: NES} dictionaries from ingested data.
 
     Replaces NOM p-val of 0.0 with pseudocount. Skips records with missing
     or non-numeric NOM p-val (already filtered during ingestion).
 
-    Returns dict mapping mutant_id -> {go_id: nom_pval}.
+    Returns tuple of (pval_dict, nes_dict) each mapping mutant_id -> {go_id: value}.
     """
-    result: dict[str, dict[str, float]] = {}
+    pval_result: dict[str, dict[str, float]] = {}
+    nes_result: dict[str, dict[str, float]] = {}
     for mutant_id in cohort.mutant_ids:
         profile = cohort.profiles[mutant_id]
         pval_dict: dict[str, float] = {}
+        nes_dict: dict[str, float] = {}
         for term_name, record in profile.records.items():
             pval = record.nom_pval
             if pval == 0.0:
                 pval = pseudocount
             pval_dict[record.go_id] = pval
-        result[mutant_id] = pval_dict
-    return result
+            nes_dict[record.go_id] = record.nes
+        pval_result[mutant_id] = pval_dict
+        nes_result[mutant_id] = nes_dict
+    return pval_result, nes_result
 
 
 def build_pvalue_matrix(
@@ -77,6 +81,37 @@ def build_pvalue_matrix(
                 matrix[i, j] = pvals[go_id]
 
     return matrix, go_id_order
+
+
+def build_nes_matrix(
+    per_mutant_nes: dict[str, dict[str, float]],
+    mutant_ids: list[str],
+    go_id_order: list[str],
+) -> np.ndarray:
+    """Build the GO term x mutant NES matrix.
+
+    Missing entries are filled with NaN.
+
+    Returns:
+        matrix: np.ndarray of shape (n_go_terms, n_mutants)
+    """
+    n_go = len(go_id_order)
+    n_mutants = len(mutant_ids)
+
+    matrix = np.full((n_go, n_mutants), np.nan, dtype=float)
+
+    go_idx_map = {go_id: i for i, go_id in enumerate(go_id_order)}
+    mut_idx_map = {mid: j for j, mid in enumerate(mutant_ids)}
+
+    for mutant_id in mutant_ids:
+        nes_vals = per_mutant_nes.get(mutant_id, {})
+        j = mut_idx_map[mutant_id]
+        for go_id, nes in nes_vals.items():
+            if go_id in go_idx_map:
+                i = go_idx_map[go_id]
+                matrix[i, j] = nes
+
+    return matrix
 
 
 def compute_fisher_combined(
@@ -164,11 +199,14 @@ def run_fisher_analysis(
     mutant_ids = cohort.mutant_ids
     n_mutants = len(mutant_ids)
 
-    # Step 1: Build per-mutant p-value dicts
-    per_mutant_pvals = build_pvalue_dict_per_mutant(cohort, config.pseudocount)
+    # Step 1: Build per-mutant p-value and NES dicts
+    per_mutant_pvals, per_mutant_nes = build_pvalue_dict_per_mutant(cohort, config.pseudocount)
 
     # Step 2: Build p-value matrix
     pvalue_matrix, go_id_order = build_pvalue_matrix(per_mutant_pvals, mutant_ids)
+
+    # Step 2b: Build NES matrix
+    nes_matrix = build_nes_matrix(per_mutant_nes, mutant_ids, go_id_order)
 
     # Step 3: Compute Fisher's combined p-values
     combined_pvals_array = compute_fisher_combined(pvalue_matrix, n_mutants)
@@ -207,7 +245,7 @@ def run_fisher_analysis(
     )
 
     # Write pvalue_matrix.tsv
-    write_pvalue_matrix_tsv(pvalue_matrix, go_id_order, go_id_to_name, mutant_ids, output_dir)
+    write_pvalue_matrix_tsv(pvalue_matrix, nes_matrix, go_id_order, go_id_to_name, mutant_ids, output_dir)
 
     # If clustering is disabled, also write fisher_combined_pvalues.tsv
     if not clustering_enabled:
@@ -218,24 +256,37 @@ def run_fisher_analysis(
 
 def write_pvalue_matrix_tsv(
     matrix: np.ndarray,
+    nes_matrix: np.ndarray,
     go_id_order: list[str],
     go_id_to_name: dict[str, str],
     mutant_ids: list[str],
     output_dir: Path,
 ) -> Path:
-    """Write the p-value matrix to pvalue_matrix.tsv."""
+    """Write the p-value matrix with NES values to pvalue_matrix.tsv.
+
+    Each row contains: GO_ID, GO_Term, then for each mutant a pvalue column
+    followed by a NES column.
+    """
     output_path = output_dir / "pvalue_matrix.tsv"
 
-    with open(output_path, "w", newline="") as f:
-        # Header: GO_ID, Term_Name, mutant_id_1, mutant_id_2, ...
-        header = "GO_ID\tTerm_Name\t" + "\t".join(mutant_ids) + "\n"
-        f.write(header)
+    lines: list[str] = []
+    # Header: GO_ID, GO_Term, then alternating pval/NES columns per mutant
+    header_parts = ["GO_ID", "GO_Term"]
+    for mid in mutant_ids:
+        header_parts.append(f"{mid}_pval")
+        header_parts.append(f"{mid}_NES")
+    lines.append("\t".join(header_parts))
 
-        for i, go_id in enumerate(go_id_order):
-            term_name = go_id_to_name.get(go_id, "")
-            row_vals = "\t".join(str(matrix[i, j]) for j in range(len(mutant_ids)))
-            line = f"{go_id}\t{term_name}\t{row_vals}\n"
-            f.write(line)
+    for i, go_id in enumerate(go_id_order):
+        term_name = go_id_to_name.get(go_id, "")
+        row_parts = [go_id, term_name]
+        for j in range(len(mutant_ids)):
+            row_parts.append(str(matrix[i, j]))
+            nes_val = nes_matrix[i, j]
+            row_parts.append("" if np.isnan(nes_val) else str(nes_val))
+        lines.append("\t".join(row_parts))
+
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     return output_path
 

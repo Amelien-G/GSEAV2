@@ -682,7 +682,7 @@ assert result.n_mutants == len(cohort.mutant_ids), "Mutant count must match coho
 
 ### Tier 1 -- Description
 
-This unit implements Fisher's combined probability method to aggregate GSEA evidence across all mutant lines. It operates on nominal p-values keyed by GO ID from the ingested cohort data. Step 1: for each mutant, build a per-mutant p-value dictionary keyed by GO ID from the already-ingested TermRecords. If a GO term has `NOM p-val` of exactly 0.0, replace it with a configurable pseudocount (default 1e-10). Step 2: collect the union of all GO IDs across all mutants and build a p-value matrix of shape (n_GO_terms x n_mutants), imputing p = 1.0 for missing entries. Step 3: for each GO term, compute the Fisher statistic X^2 = -2 * sum(ln(p_i)) and the combined p-value from a chi-squared distribution with 2k degrees of freedom, where k is the number of mutant lines. Optionally apply Benjamini-Hochberg FDR correction on the combined p-values. The unit writes `pvalue_matrix.tsv` to the output directory. When clustering is disabled (per config), this unit also writes `fisher_combined_pvalues.tsv` (without cluster assignment columns). The unit also computes and stores the number of contributing mutant lines per GO term (lines with p < 1.0).
+This unit implements Fisher's combined probability method to aggregate GSEA evidence across all mutant lines. It operates on nominal p-values keyed by GO ID from the ingested cohort data. Step 1: for each mutant, build a per-mutant p-value dictionary and a per-mutant NES dictionary, both keyed by GO ID, from the already-ingested TermRecords. If a GO term has `NOM p-val` of exactly 0.0, replace it with a configurable pseudocount (default 1e-10). Step 2: collect the union of all GO IDs across all mutants and build a p-value matrix of shape (n_GO_terms x n_mutants), imputing p = 1.0 for missing entries. Also build a parallel NES matrix (missing entries filled with NaN). Step 3: for each GO term, compute the Fisher statistic X^2 = -2 * sum(ln(p_i)) and the combined p-value from a chi-squared distribution with 2k degrees of freedom, where k is the number of mutant lines. Optionally apply Benjamini-Hochberg FDR correction on the combined p-values. The unit writes `pvalue_matrix.tsv` to the output directory. When clustering is disabled (per config), this unit also writes `fisher_combined_pvalues.tsv` (without cluster assignment columns). The unit also computes and stores the number of contributing mutant lines per GO term (lines with p < 1.0).
 
 ### Tier 2 — Signatures
 
@@ -714,13 +714,28 @@ class FisherResult:
 def build_pvalue_dict_per_mutant(
     cohort: CohortData,
     pseudocount: float,
-) -> dict[str, dict[str, float]]:
-    """Build per-mutant {GO_ID: nom_pval} dictionaries from ingested data.
+) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]]]:
+    """Build per-mutant {GO_ID: nom_pval} and {GO_ID: NES} dictionaries from ingested data.
 
     Replaces NOM p-val of 0.0 with pseudocount. Skips records with missing
     or non-numeric NOM p-val (already filtered during ingestion).
 
-    Returns dict mapping mutant_id -> {go_id: nom_pval}.
+    Returns tuple of (pval_dict, nes_dict) each mapping mutant_id -> {go_id: value}.
+    """
+    ...
+
+
+def build_nes_matrix(
+    per_mutant_nes: dict[str, dict[str, float]],
+    mutant_ids: list[str],
+    go_id_order: list[str],
+) -> np.ndarray:
+    """Build the GO term x mutant NES matrix.
+
+    Missing entries are filled with NaN.
+
+    Returns:
+        matrix: np.ndarray of shape (n_go_terms, n_mutants)
     """
     ...
 
@@ -772,12 +787,17 @@ def run_fisher_analysis(
 
 def write_pvalue_matrix_tsv(
     matrix: np.ndarray,
+    nes_matrix: np.ndarray,
     go_id_order: list[str],
     go_id_to_name: dict[str, str],
     mutant_ids: list[str],
     output_dir: Path,
 ) -> Path:
-    """Write the p-value matrix to pvalue_matrix.tsv."""
+    """Write the p-value matrix with NES values to pvalue_matrix.tsv.
+
+    Each row contains: GO_ID, GO_Term, then for each mutant a pvalue column
+    followed by a NES column.
+    """
     ...
 
 
@@ -822,7 +842,7 @@ assert fisher_result.n_mutants == len(fisher_result.mutant_ids), "n_mutants must
 5. Combined p-values are computed from the chi-squared survival function (1 - CDF) with 2k degrees of freedom.
 6. If `apply_fdr` is True in config, Benjamini-Hochberg FDR correction is applied to the combined p-values. The corrected p-values are stored in `FisherResult.corrected_pvalues`. If False, `corrected_pvalues` is None.
 8. The number of contributing mutant lines per GO term counts how many mutant lines have p < 1.0 (i.e., the term was actually observed, not imputed) for that GO term.
-9. `pvalue_matrix.tsv` is always written to `output_dir`. Columns are mutant IDs, rows are GO IDs with an additional column for GO term name.
+9. `pvalue_matrix.tsv` is always written to `output_dir`. For each mutant, two columns are written: `{mutant_id}_pval` and `{mutant_id}_NES`. Rows are GO IDs with an additional column for GO term name. NES values that are missing are written as empty strings.
 10. When `clustering_enabled` is False, `fisher_combined_pvalues.tsv` is also written by this unit, containing GO ID, GO term name, combined p-value, and number of contributing lines. No cluster assignment column is included.
 11. The `go_id_to_name` mapping allows downstream units and TSV outputs to display human-readable term names alongside GO IDs.
 

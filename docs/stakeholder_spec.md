@@ -108,7 +108,7 @@ All figures are produced in three formats:
 The following intermediate TSV files are always produced in the `output/` directory:
 
 - `fisher_combined_pvalues.tsv` -- Full table of GO terms with combined Fisher p-values, number of contributing mutant lines, and cluster assignments (if clustering is enabled).
-- `pvalue_matrix.tsv` -- The raw GO term by mutant line nominal p-value matrix before combination. Missing entries are filled with the imputed value of 1.0.
+- `pvalue_matrix.tsv` -- The raw GO term by mutant line nominal p-value matrix before combination, with interleaved NES (Normalized Enrichment Score) columns for each mutant. Missing p-value entries are filled with the imputed value of 1.0; missing NES entries are left blank.
 
 ### 4.4 Notes File (notes.md)
 
