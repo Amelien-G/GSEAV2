@@ -1720,19 +1720,29 @@ class TestEndToEnd:
         tsv_content = (output_dir / "pvalue_matrix.tsv").read_text(encoding="utf-8")
         lines = tsv_content.strip().split("\n")
 
-        # Parse header
+        # Parse header. Per `feat: add NES columns to pvalue_matrix.tsv`
+        # (commit d0c6031), the matrix now interleaves `_pval` and `_NES`
+        # columns per mutant after the GO_Term column.
         header = lines[0].split("\t")
         assert header[0] == "GO_ID"
-        assert header[1] == "Term_Name"
-        assert header[2:] == cohort.mutant_ids
+        assert header[1] == "GO_Term"
+        expected_cols = []
+        for mid in cohort.mutant_ids:
+            expected_cols.append(f"{mid}_pval")
+            expected_cols.append(f"{mid}_NES")
+        assert header[2:] == expected_cols
+
+        # Map each mutant to its pval column index. Columns 2,4,6,... are pvals;
+        # 3,5,7,... are the corresponding NES values.
+        pval_idx = {mid: 2 + 2 * i for i, mid in enumerate(cohort.mutant_ids)}
 
         # Find CHROMATIN BINDING row (GO:0003682, only in gamma)
         for line in lines[1:]:
             fields = line.split("\t")
             if fields[0] == "GO:0003682":
-                alpha_pval = float(fields[2])  # alpha
-                beta_pval = float(fields[3])   # beta
-                gamma_pval = float(fields[4])  # gamma
+                alpha_pval = float(fields[pval_idx["alpha"]])
+                beta_pval = float(fields[pval_idx["beta"]])
+                gamma_pval = float(fields[pval_idx["gamma"]])
 
                 assert alpha_pval == 1.0, "Missing term imputed as 1.0"
                 assert beta_pval == 1.0, "Missing term imputed as 1.0"
