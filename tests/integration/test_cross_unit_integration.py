@@ -527,6 +527,72 @@ class TestSelectionToDotPlotRendering:
         assert result.n_terms_displayed == sum(len(g.term_names) for g in groups)
         assert result.n_mutants == 3
 
+    def test_render_go_tree_for_cherry_picked_and_unbiased_groups(self, cohort, tmp_path):
+        """Both Figure 1B and Figure 2B GO-tree figures render end-to-end
+        from realistic cohort data and produce the expected file triples."""
+        from gsea_tool.go_tree import render_go_tree, GoTreeResult
+        from tests.unit_11.mocks.mock_obo import write_synthetic_obo
+
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        obo_path = write_synthetic_obo(tmp_path)
+
+        # Build a cohort whose term names match the synthetic OBO.
+        from gsea_tool.data_ingestion import CohortData, MutantProfile, TermRecord
+        synth_records = {
+            "TRANSLATION": TermRecord(
+                term_name="TRANSLATION", go_id="GO:0006412",
+                nes=2.0, fdr=0.001, nom_pval=0.0001, size=50,
+            ),
+            "OXIDATIVE PHOSPHORYLATION": TermRecord(
+                term_name="OXIDATIVE PHOSPHORYLATION", go_id="GO:0006119",
+                nes=1.5, fdr=0.01, nom_pval=0.001, size=50,
+            ),
+            "RIBOSOME BIOGENESIS": TermRecord(
+                term_name="RIBOSOME BIOGENESIS", go_id="GO:0042254",
+                nes=-1.0, fdr=0.02, nom_pval=0.005, size=50,
+            ),
+        }
+        synth_cohort = CohortData(
+            mutant_ids=["alpha", "beta", "gamma"],
+            profiles={
+                m: MutantProfile(mutant_id=m, records=dict(synth_records))
+                for m in ["alpha", "beta", "gamma"]
+            },
+            all_term_names=set(synth_records.keys()),
+            all_go_ids={r.go_id for r in synth_records.values()},
+        )
+
+        cherry_groups = [
+            CategoryGroup(category_name="Translation",
+                          term_names=["TRANSLATION", "RIBOSOME BIOGENESIS"]),
+            CategoryGroup(category_name="Energy",
+                          term_names=["OXIDATIVE PHOSPHORYLATION"]),
+        ]
+        unbiased_groups = [
+            CategoryGroup(category_name="All",
+                          term_names=list(synth_records.keys())),
+        ]
+
+        fig1b = render_go_tree(
+            groups=cherry_groups, cohort=synth_cohort, obo_path=obo_path,
+            output_stem="figure1B_cherry_picked_tree", output_dir=output_dir,
+            title="Figure 1B",
+        )
+        fig2b = render_go_tree(
+            groups=unbiased_groups, cohort=synth_cohort, obo_path=obo_path,
+            output_stem="figure2B_unbiased_tree", output_dir=output_dir,
+            title="Figure 2B",
+        )
+
+        for f in (fig1b, fig2b):
+            assert isinstance(f, GoTreeResult)
+            assert f.pdf_path.exists()
+            assert f.png_path.exists()
+            assert f.svg_path.exists()
+            assert f.n_leaf_terms >= 1
+            assert f.n_namespaces >= 1
+
     def test_dot_grid_uses_correct_fdr_for_absence_encoding(self, cohort):
         """build_dot_grid must produce None for cells where FDR >= threshold,
         matching the spec requirement that empty cells indicate non-significance."""

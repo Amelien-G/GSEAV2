@@ -86,6 +86,7 @@ def _run() -> None:
     from gsea_tool.go_clustering import run_semantic_clustering, download_or_load_obo, ClusteringResult
     from gsea_tool.bar_plot import render_bar_plot, BarPlotResult
     from gsea_tool.notes_generation import generate_notes, NotesInput
+    from gsea_tool.go_tree import render_go_tree, GoTreeResult
 
     # Parse CLI arguments
     parser = build_argument_parser()
@@ -122,9 +123,12 @@ def _run() -> None:
             file=sys.stderr,
         )
 
+    # Always resolve the OBO file: it is needed for the GO-hierarchy figures
+    # (Figure 1B / Figure 2B), in addition to the optional ontology cherry-pick
+    # path and the optional Unit 7 clustering path.
+    obo_path = download_or_load_obo(config.clustering.go_obo_url, cache_dir)
+
     if has_config_categories:
-        # Ontology path: use resolve_categories_from_ontology with OBO file
-        obo_path = download_or_load_obo(config.clustering.go_obo_url, cache_dir)
         fig1_groups = resolve_categories_from_ontology(
             cohort, config.cherry_pick_categories, obo_path
         )
@@ -136,8 +140,9 @@ def _run() -> None:
         fig1_groups = select_cherry_picked_terms(cohort, term_to_category)
         fig1_method = "tsv"
 
-    # Step 3: Render Figure 1 (Unit 5, conditional)
+    # Step 3: Render Figure 1 (Unit 5, conditional) and Figure 1B (Unit 11, conditional)
     fig1_result: DotPlotResult | None = None
+    fig1b_result: GoTreeResult | None = None
     if fig1_groups is not None and len(fig1_groups) > 0:
         fig1_result = render_dot_plot(
             cohort=cohort,
@@ -149,6 +154,16 @@ def _run() -> None:
             font_family=config.plot_appearance.font_family,
             title="Figure 1: Cherry-Picked GO Terms",
         )
+        fig1b_result = render_go_tree(
+            groups=fig1_groups,
+            cohort=cohort,
+            obo_path=obo_path,
+            output_stem="figure1B_cherry_picked_tree",
+            output_dir=output_dir,
+            dpi=config.plot_appearance.dpi,
+            font_family=config.plot_appearance.font_family,
+            title="Figure 1B: Cherry-Picked GO Term Hierarchy",
+        )
 
     # Step 4: Select unbiased terms (Unit 4) for Figure 2
     unbiased_groups, unbiased_stats = select_unbiased_terms(
@@ -159,7 +174,7 @@ def _run() -> None:
         random_seed=config.dot_plot.random_seed,
     )
 
-    # Step 5: Render Figure 2 (Unit 5)
+    # Step 5: Render Figure 2 (Unit 5) and Figure 2B (Unit 11)
     fig2_result = render_dot_plot(
         cohort=cohort,
         groups=unbiased_groups,
@@ -169,6 +184,16 @@ def _run() -> None:
         dpi=config.plot_appearance.dpi,
         font_family=config.plot_appearance.font_family,
         title="Figure 2: Unbiased GO Term Selection",
+    )
+    fig2b_result = render_go_tree(
+        groups=unbiased_groups,
+        cohort=cohort,
+        obo_path=obo_path,
+        output_stem="figure2B_unbiased_tree",
+        output_dir=output_dir,
+        dpi=config.plot_appearance.dpi,
+        font_family=config.plot_appearance.font_family,
+        title="Figure 2B: Unbiased Top GO Term Hierarchy",
     )
 
     # Step 6: Run Fisher analysis (Unit 6)
@@ -210,13 +235,16 @@ def _run() -> None:
         unbiased_stats=unbiased_stats,
         fisher_result=fisher_result,
         clustering_result=clustering_result,
+        fig1b_result=fig1b_result,
+        fig2b_result=fig2b_result,
     )
     notes_path = generate_notes(notes_input, output_dir)
 
     # Print success summary to stdout
     n_mutants = len(cohort.mutant_ids)
-    figures_produced = ["Figure 2", "Figure 3"]
+    figures_produced = ["Figure 2", "Figure 2B", "Figure 3"]
     if fig1_result is not None:
+        figures_produced.insert(0, "Figure 1B")
         figures_produced.insert(0, "Figure 1")
 
     print(f"Analysis complete: {n_mutants} mutants processed.")
@@ -227,9 +255,16 @@ def _run() -> None:
         print(f"  - {fig1_result.pdf_path}")
         print(f"  - {fig1_result.png_path}")
         print(f"  - {fig1_result.svg_path}")
+    if fig1b_result is not None:
+        print(f"  - {fig1b_result.pdf_path}")
+        print(f"  - {fig1b_result.png_path}")
+        print(f"  - {fig1b_result.svg_path}")
     print(f"  - {fig2_result.pdf_path}")
     print(f"  - {fig2_result.png_path}")
     print(f"  - {fig2_result.svg_path}")
+    print(f"  - {fig2b_result.pdf_path}")
+    print(f"  - {fig2b_result.png_path}")
+    print(f"  - {fig2b_result.svg_path}")
     print(f"  - {fig3_result.pdf_path}")
     print(f"  - {fig3_result.png_path}")
     print(f"  - {fig3_result.svg_path}")

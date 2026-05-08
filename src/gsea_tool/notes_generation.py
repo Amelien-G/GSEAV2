@@ -12,6 +12,7 @@ from gsea_tool.dot_plot import DotPlotResult
 from gsea_tool.meta_analysis import FisherResult
 from gsea_tool.go_clustering import ClusteringResult
 from gsea_tool.bar_plot import BarPlotResult
+from gsea_tool.go_tree import GoTreeResult
 
 
 @dataclass
@@ -26,6 +27,8 @@ class NotesInput:
     unbiased_stats: UnbiasedSelectionStats
     fisher_result: FisherResult
     clustering_result: ClusteringResult | None  # None if clustering was disabled
+    fig1b_result: GoTreeResult | None = None  # GO tree paired with Figure 1
+    fig2b_result: GoTreeResult | None = None  # GO tree paired with Figure 2
 
 
 def get_dependency_versions() -> dict[str, str]:
@@ -120,6 +123,24 @@ def format_figure_legends(notes_input: NotesInput) -> str:
             )
         sections.append("")
 
+    # Figure 1B legend (GO hierarchy tree paired with Figure 1)
+    if ni.fig1b_result is not None:
+        f1b = ni.fig1b_result
+        sections.append("### Figure 1B: Cherry-Picked GO Term Hierarchy")
+        sections.append("")
+        sections.append(
+            f"Figure 1B displays the Gene Ontology hierarchy that organizes the "
+            f"{f1b.n_leaf_terms} cherry-picked GO terms shown in Figure 1. "
+            f"Each plotted term is rendered as a leaf (bold label) connected to its "
+            f"is_a ancestors (regular labels) up to the namespace root. "
+            f"{f1b.n_internal_nodes} internal ancestor nodes are shown in addition to the leaves. "
+            f"Terms are split across {f1b.n_namespaces} panel(s), one per Gene Ontology "
+            f"namespace (biological process / molecular function / cellular component). "
+            f"No statistical encoding is applied to nodes; the figure summarizes structural "
+            f"relationships only."
+        )
+        sections.append("")
+
     # Figure 2 legend
     fig2 = ni.fig2_result
     sections.append("### Figure 2: Unbiased Selection Dot Plot")
@@ -139,6 +160,24 @@ def format_figure_legends(notes_input: NotesInput) -> str:
         f"A total of {fig2.n_terms_displayed} GO terms are displayed."
     )
     sections.append("")
+
+    # Figure 2B legend (GO hierarchy tree paired with Figure 2)
+    if ni.fig2b_result is not None:
+        f2b = ni.fig2b_result
+        sections.append("### Figure 2B: Unbiased GO Term Hierarchy")
+        sections.append("")
+        sections.append(
+            f"Figure 2B displays the Gene Ontology hierarchy that organizes the "
+            f"{f2b.n_leaf_terms} unbiased-selected GO terms shown in Figure 2. "
+            f"Each plotted term is rendered as a leaf (bold label) connected to its "
+            f"is_a ancestors (regular labels) up to the namespace root. "
+            f"{f2b.n_internal_nodes} internal ancestor nodes are shown in addition to the leaves. "
+            f"Terms are split across {f2b.n_namespaces} panel(s), one per Gene Ontology "
+            f"namespace (biological process / molecular function / cellular component). "
+            f"No statistical encoding is applied to nodes; the figure summarizes structural "
+            f"relationships only."
+        )
+        sections.append("")
 
     # Figure 3 legend
     fig3 = ni.fig3_result
@@ -275,6 +314,31 @@ def format_methods_text(notes_input: NotesInput) -> str:
         )
     sections.append("")
 
+    # GO hierarchy figures (Figure 1B and Figure 2B) methods
+    if ni.fig1b_result is not None or ni.fig2b_result is not None:
+        sections.append("### Figures 1B and 2B: GO Term Hierarchy Trees")
+        sections.append("")
+        produced = []
+        if ni.fig1b_result is not None:
+            produced.append("Figure 1B (paired with Figure 1)")
+        if ni.fig2b_result is not None:
+            produced.append("Figure 2B (paired with Figure 2)")
+        produced_str = " and ".join(produced)
+        sections.append(
+            f"For {produced_str}, the GO terms displayed in the corresponding "
+            f"dot plot were resolved to their Gene Ontology IDs and combined with "
+            f"the union of their is_a ancestors up to the namespace root, walked "
+            f"recursively against the same OBO file used for ontology resolution "
+            f"({cfg.clustering.go_obo_url}). The resulting node set was partitioned "
+            f"by GO namespace (biological_process / molecular_function / cellular_component) "
+            f"and rendered as a top-down hierarchical tree per namespace, with depth "
+            f"computed as the longest is_a path to a root and within-row x-positions "
+            f"assigned by parent-mean barycenter. Plotted terms appear as bold leaves; "
+            f"ancestor terms appear as regular-weight internal nodes. Only is_a "
+            f"relationships are used; part_of relationships are not represented."
+        )
+        sections.append("")
+
     # Software dependencies
     sections.append("### Software Dependencies")
     sections.append("")
@@ -355,6 +419,24 @@ def format_summary_statistics(notes_input: NotesInput) -> str:
         sections.append("")
         sections.append(
             "GO semantic similarity clustering was not applied."
+        )
+        sections.append("")
+
+    # GO hierarchy summary stats (Figures 1B and 2B)
+    if ni.fig1b_result is not None:
+        f1b = ni.fig1b_result
+        sections.append(
+            f"Figure 1B GO-tree: {f1b.n_leaf_terms} leaf terms, "
+            f"{f1b.n_internal_nodes} ancestor nodes, "
+            f"{f1b.n_namespaces} namespace panel(s)."
+        )
+        sections.append("")
+    if ni.fig2b_result is not None:
+        f2b = ni.fig2b_result
+        sections.append(
+            f"Figure 2B GO-tree: {f2b.n_leaf_terms} leaf terms, "
+            f"{f2b.n_internal_nodes} ancestor nodes, "
+            f"{f2b.n_namespaces} namespace panel(s)."
         )
         sections.append("")
 

@@ -4,13 +4,15 @@
 
 Researchers studying Autism Spectrum Disorder (ASD) using Drosophila melanogaster fly models run Gene Set Enrichment Analysis (GSEA) on each mutant line independently. This produces per-mutant enrichment results across hundreds of Gene Ontology (GO) biological pathways. No existing tool assembles these per-mutant outputs into a single cohort-level summary figure suitable for manuscript submission.
 
-This tool fills that gap. It reads GSEA output files from an arbitrary number of mutant subfolders, identifies which biological processes are consistently enriched or depleted across the cohort, and produces three publication-quality figures:
+This tool fills that gap. It reads GSEA output files from an arbitrary number of mutant subfolders, identifies which biological processes are consistently enriched or depleted across the cohort, and produces five publication-quality figures:
 
 - **Figure 1** (optional): A hypothesis-driven dot plot grouping user-curated GO terms into biologically motivated categories. Categories can be specified either via a mapping TSV file or via `cherry_pick_categories` in `config.yaml` (which uses GO ontology ancestry resolution).
+- **Figure 1B** (whenever Figure 1 is produced): A GO-term hierarchy figure paired with Figure 1, showing how the cherry-picked terms relate to one another via the GO `is_a` graph.
 - **Figure 2** (always produced): An unbiased dot plot using data-driven GO term selection and unsupervised clustering, requiring no prior biological knowledge.
+- **Figure 2B** (always produced): A GO-term hierarchy figure paired with Figure 2, showing how the unbiased-selected terms relate to one another via the GO `is_a` graph.
 - **Figure 3** (always produced): A horizontal bar plot summarizing cohort-level pathway dysregulation using Fisher's combined probability method.
 
-The dot plot format is modeled on Figure 3a of Gordon et al. 2024 to enable direct visual comparison between fly proteomics data and human transcriptomics findings. All figures are produced in PDF, PNG, and SVG formats, ready for journal submission without post-processing.
+The dot plot format is modeled on Figure 3a of Gordon et al. 2024 to enable direct visual comparison between fly proteomics data and human transcriptomics findings. The hierarchy figures (1B, 2B) give the reader the structural ontology context that the flat dot plots omit. All figures are produced in PDF, PNG, and SVG formats, ready for journal submission without post-processing.
 
 ## 2. Intended Users and Needs
 
@@ -186,7 +188,9 @@ See `category_mapping.tsv.example` in the repository for a complete example.
 All outputs are written to `output/` in the project directory:
 
 - `figure1_cherry_picked.{pdf,png,svg}` -- hypothesis-driven dot plot (if cherry_pick config or mapping file provided)
+- `figure1B_cherry_picked_tree.{pdf,png,svg}` -- GO-term hierarchy paired with Figure 1 (whenever Figure 1 is produced)
 - `figure2_unbiased.{pdf,png,svg}` -- data-driven dot plot
+- `figure2B_unbiased_tree.{pdf,png,svg}` -- GO-term hierarchy paired with Figure 2
 - `figure3_meta_analysis.{pdf,png,svg}` -- meta-analysis bar plot
 - `pvalue_matrix.tsv` -- raw p-value matrix for all GO terms
 - `fisher_combined_pvalues.tsv` -- Fisher combined p-values with cluster assignments
@@ -285,7 +289,9 @@ The tool writes the following files to `output/`:
 | File | Description |
 |------|-------------|
 | `figure1_cherry_picked.{pdf,png,svg}` | Hypothesis-driven dot plot (if produced) |
+| `figure1B_cherry_picked_tree.{pdf,png,svg}` | GO-term hierarchy of cherry-picked terms (whenever Figure 1 is produced) |
 | `figure2_unbiased.{pdf,png,svg}` | Unbiased selection dot plot |
+| `figure2B_unbiased_tree.{pdf,png,svg}` | GO-term hierarchy of unbiased-selected terms (always) |
 | `figure3_meta_analysis.{pdf,png,svg}` | Meta-analysis bar plot |
 | `pvalue_matrix.tsv` | GO term x mutant nominal p-value matrix |
 | `fisher_combined_pvalues.tsv` | Fisher combined p-values with cluster assignments |

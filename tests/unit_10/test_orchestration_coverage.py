@@ -122,6 +122,19 @@ def _make_mock_bar_plot_result(output_dir=None):
     return result
 
 
+def _make_mock_go_tree_result(stem="figure2B_unbiased_tree", output_dir=None):
+    """Create a mock GoTreeResult."""
+    result = MagicMock()
+    base = output_dir or Path("/tmp/output")
+    result.pdf_path = base / f"{stem}.pdf"
+    result.png_path = base / f"{stem}.png"
+    result.svg_path = base / f"{stem}.svg"
+    result.n_leaf_terms = 8
+    result.n_internal_nodes = 12
+    result.n_namespaces = 1
+    return result
+
+
 def _make_mock_unbiased_stats():
     """Create a mock UnbiasedSelectionStats."""
     stats = MagicMock()
@@ -174,11 +187,16 @@ def _setup_main_patches(tmp_path, monkeypatch, mapping_file_arg=None, clustering
     mock_term_to_category = {"TERM_A": "Category1"}
     mock_notes_path = tmp_path / "output" / "notes.md"
 
+    mock_fig1b_result = _make_mock_go_tree_result(stem="figure1B_cherry_picked_tree")
+    mock_fig2b_result = _make_mock_go_tree_result(stem="figure2B_unbiased_tree")
+
     mocks = {
         "cohort": mock_cohort,
         "config": mock_config,
         "fig1_result": mock_fig1_result,
         "fig2_result": mock_fig2_result,
+        "fig1b_result": mock_fig1b_result,
+        "fig2b_result": mock_fig2b_result,
         "fisher_result": mock_fisher_result,
         "clustering_result": mock_clustering_result,
         "bar_result": mock_bar_result,
@@ -224,10 +242,18 @@ def _apply_all_patches(mocks, clustering_enabled=True, mapping_provided=False):
             "gsea_tool.dot_plot.render_dot_plot",
             side_effect=[mocks["fig1_result"], mocks["fig2_result"]],
         )
+        patches["render_go_tree"] = patch(
+            "gsea_tool.go_tree.render_go_tree",
+            side_effect=[mocks["fig1b_result"], mocks["fig2b_result"]],
+        )
     else:
         patches["render_dot_plot"] = patch(
             "gsea_tool.dot_plot.render_dot_plot",
             return_value=mocks["fig2_result"],
+        )
+        patches["render_go_tree"] = patch(
+            "gsea_tool.go_tree.render_go_tree",
+            return_value=mocks["fig2b_result"],
         )
 
     patches["run_fisher_analysis"] = patch(
@@ -237,6 +263,10 @@ def _apply_all_patches(mocks, clustering_enabled=True, mapping_provided=False):
     patches["run_semantic_clustering"] = patch(
         "gsea_tool.go_clustering.run_semantic_clustering",
         return_value=mocks["clustering_result"],
+    )
+    patches["download_or_load_obo"] = patch(
+        "gsea_tool.go_clustering.download_or_load_obo",
+        return_value=Path("/fake/go.obo"),
     )
     patches["render_bar_plot"] = patch(
         "gsea_tool.bar_plot.render_bar_plot",
@@ -943,11 +973,15 @@ class TestContract3ProjectDirResolution:
                                    return_value=_make_mock_fisher_result()):
                             with patch("gsea_tool.go_clustering.run_semantic_clustering",
                                        return_value=_make_mock_clustering_result()):
-                                with patch("gsea_tool.bar_plot.render_bar_plot",
-                                           return_value=_make_mock_bar_plot_result()):
-                                    with patch("gsea_tool.notes_generation.generate_notes"):
-                                        with patch("gsea_tool.notes_generation.NotesInput"):
-                                            main()
+                                with patch("gsea_tool.go_clustering.download_or_load_obo",
+                                           return_value=Path("/fake/go.obo")):
+                                    with patch("gsea_tool.bar_plot.render_bar_plot",
+                                               return_value=_make_mock_bar_plot_result()):
+                                        with patch("gsea_tool.go_tree.render_go_tree",
+                                                   return_value=_make_mock_go_tree_result()):
+                                            with patch("gsea_tool.notes_generation.generate_notes"):
+                                                with patch("gsea_tool.notes_generation.NotesInput"):
+                                                    main()
 
         # load_config should have been called with tmp_path (the resolved project_dir)
         called_project_dir = mock_lc.call_args[0][0]

@@ -97,6 +97,18 @@ def _make_mock_dot_plot_result(stem="figure2_unbiased"):
     return result
 
 
+def _make_mock_go_tree_result(stem="figure2B_unbiased_tree"):
+    """Create a mock GoTreeResult."""
+    result = MagicMock()
+    result.n_leaf_terms = 8
+    result.n_internal_nodes = 12
+    result.n_namespaces = 1
+    result.pdf_path = Path(f"/tmp/output/{stem}.pdf")
+    result.png_path = Path(f"/tmp/output/{stem}.png")
+    result.svg_path = Path(f"/tmp/output/{stem}.svg")
+    return result
+
+
 def _make_mock_fisher_result():
     """Create a mock FisherResult."""
     result = MagicMock()
@@ -189,10 +201,18 @@ def _build_patches(mocks, mapping_provided=False):
             "gsea_tool.dot_plot.render_dot_plot",
             side_effect=[mocks["fig1_result"], mocks["fig2_result"]],
         )
+        patches["render_go_tree"] = patch(
+            "gsea_tool.go_tree.render_go_tree",
+            side_effect=[mocks["fig1b_result"], mocks["fig2b_result"]],
+        )
     else:
         patches["render_dot_plot"] = patch(
             "gsea_tool.dot_plot.render_dot_plot",
             return_value=mocks["fig2_result"],
+        )
+        patches["render_go_tree"] = patch(
+            "gsea_tool.go_tree.render_go_tree",
+            return_value=mocks["fig2b_result"],
         )
 
     patches["run_fisher_analysis"] = patch(
@@ -233,6 +253,8 @@ def _make_all_mocks(clustering_enabled=True, cherry_pick_categories=None):
         ),
         "fig1_result": _make_mock_dot_plot_result(stem="figure1_cherry_picked"),
         "fig2_result": _make_mock_dot_plot_result(stem="figure2_unbiased"),
+        "fig1b_result": _make_mock_go_tree_result(stem="figure1B_cherry_picked_tree"),
+        "fig2b_result": _make_mock_go_tree_result(stem="figure2B_unbiased_tree"),
         "fisher_result": _make_mock_fisher_result(),
         "clustering_result": _make_mock_clustering_result(),
         "bar_result": _make_mock_bar_plot_result(),
