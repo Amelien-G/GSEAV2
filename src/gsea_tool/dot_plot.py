@@ -17,6 +17,12 @@ from gsea_tool.data_ingestion import CohortData
 from gsea_tool.cherry_picked import CategoryGroup
 
 
+# Anchored size-scale references for dot-size legend.
+# See bug log entries cross-referencing wgcna BUG-013 / BUG-015 / BUG-018.
+LEGEND_FDR_EXAMPLES = (0.25, 0.05, 0.001)   # smallest -> largest reference dot
+FDR_MIN_CLAMP = 1e-300
+
+
 @dataclass
 class DotPlotResult:
     """Metadata about a rendered dot plot figure, for notes.md consumption."""
@@ -189,22 +195,22 @@ def render_dot_plot(
     norm = mcolors.Normalize(vmin=-max_abs_nes, vmax=max_abs_nes)
     cmap = plt.get_cmap("RdBu_r")
 
-    # Determine size scaling
-    if sizes:
-        max_sig = max(sizes)
-        min_sig = min(sizes)
-    else:
-        max_sig = 1.0
-        min_sig = 0.0
+    # Anchored size scaling: dot size is mapped to fixed FDR reference values
+    # (LEGEND_FDR_EXAMPLES), not to the per-figure data range. This keeps the
+    # three legend reference dots visually distinct even when the data contains
+    # FDR=0 values clamped to FDR_MIN_CLAMP=1e-300.
+    min_dot_size = 50
+    max_dot_size = 500
 
-    min_dot_size = 20
-    max_dot_size = 200
+    sig_anchor_min = -math.log10(LEGEND_FDR_EXAMPLES[0])
+    sig_anchor_max = -math.log10(max(LEGEND_FDR_EXAMPLES[-1], FDR_MIN_CLAMP))
+    sig_anchor_range = sig_anchor_max - sig_anchor_min or 1.0
 
     def scale_size(sig_val: float) -> float:
-        if max_sig == min_sig:
-            return (min_dot_size + max_dot_size) / 2
-        frac = (sig_val - min_sig) / (max_sig - min_sig)
-        return min_dot_size + frac * (max_dot_size - min_dot_size)
+        """Anchored: -log10(FDR) -> dot AREA (points^2)."""
+        norm = (sig_val - sig_anchor_min) / sig_anchor_range
+        norm = max(0.0, min(1.0, norm))
+        return min_dot_size + norm * (max_dot_size - min_dot_size)
 
     scaled_sizes = [scale_size(s) for s in sizes]
 
@@ -256,34 +262,30 @@ def render_dot_plot(
     cbar = fig.colorbar(sc, ax=ax, shrink=0.5, aspect=15, pad=0.15)
     cbar.set_label("NES", fontsize=9)
 
-    # Size legend for -log10(FDR)
+    # Size legend for -log10(FDR): three reference dots anchored to
+    # LEGEND_FDR_EXAMPLES. Line2D.markersize is a diameter in points;
+    # scatter `s` is an area in points^2. Convert via 2*sqrt(s/pi).
     if sizes:
-        # Choose representative values
-        unique_sigs = sorted(set(sizes))
-        if len(unique_sigs) <= 3:
-            legend_vals = unique_sigs
-        else:
-            legend_vals = [
-                min(sizes),
-                (min(sizes) + max(sizes)) / 2,
-                max(sizes),
-            ]
-
         legend_handles = []
-        for val in legend_vals:
-            s = scale_size(val)
-            label_text = f"{val:.1f}"
+        for fdr in LEGEND_FDR_EXAMPLES:
+            sig_val = -math.log10(max(fdr, FDR_MIN_CLAMP))
+            s = scale_size(sig_val)
+            label_text = f"FDR={fdr}"
             handle = Line2D(
                 [0], [0],
                 marker="o",
                 color="w",
                 markerfacecolor="gray",
-                markersize=math.sqrt(s),
+                markersize=2.0 * math.sqrt(s / math.pi),
                 label=label_text,
                 linestyle="None",
             )
             legend_handles.append(handle)
 
+        # Scale legend spacing to the largest configured marker so dots do not
+        # visually overlap when min_dot_size / max_dot_size are increased.
+        _max_diam_pts = 2.0 * math.sqrt(max_dot_size / math.pi)
+        _font_size_pts = 7.0
         size_legend = ax.legend(
             handles=legend_handles,
             title="-log$_{10}$(FDR)",
@@ -292,6 +294,9 @@ def render_dot_plot(
             frameon=False,
             fontsize=7,
             title_fontsize=8,
+            handleheight=max(0.7, _max_diam_pts / _font_size_pts + 0.5),
+            labelspacing=max(0.5, _max_diam_pts / _font_size_pts * 0.5),
+            borderpad=1.0,
         )
         ax.add_artist(size_legend)
 
