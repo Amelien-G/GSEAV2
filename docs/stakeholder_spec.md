@@ -186,11 +186,17 @@ the structural context that the flat dot plots omit.
 
 - **Leaves:** the GO terms displayed in the corresponding dot plot, rendered
   in bold.
-- **Internal nodes:** the union of `is_a` ancestors of those leaves, walked
-  recursively up to the namespace root, rendered in regular weight.
-- **Layout:** top-down hierarchical, with depth equal to the longest `is_a`
-  path to a root and within-row x-positions assigned by parent-mean
-  barycenter. Edges drawn as right-angle elbow connectors.
+- **Internal nodes:** the minimal set of `is_a` ancestors needed to preserve
+  the branching structure of the plotted leaves -- the Steiner tree on the
+  leaves plus the namespace root. Non-branching intermediate ancestors are
+  collapsed for legibility (BUG-005). Internal nodes are rendered in regular
+  weight.
+- **Edges:** solid edges denote direct `is_a` parent relationships. Dashed
+  edges denote transitive `is_a+` paths where one or more non-essential
+  ancestors were collapsed between the two displayed nodes.
+- **Layout:** top-down hierarchical, with depth equal to the longest path
+  to a root in the reduced graph and within-row x-positions assigned by
+  parent-mean barycenter. Edges drawn as right-angle elbow connectors.
 - **Namespace splitting:** terms are partitioned by GO namespace
   (biological_process / molecular_function / cellular_component); each
   populated namespace becomes its own panel, stacked vertically.
@@ -427,6 +433,16 @@ Post-delivery defects discovered after pipeline completion. Each entry reference
 **Fix.** Split the rendered output into one file set per populated namespace (`{stem}_<namespace>.{pdf,png,svg}`) so each namespace's canvas can size itself. Per-namespace width auto-scales as `max(8.0, 1.2 × widest_row)` inches; height scales as `max(3.5, 1.0 + 1.0 × n_levels)` inches. The 40-char truncation was removed; long labels are now wrapped onto at most 3 lines via `textwrap.wrap(width=28)` with ellipsis only on the final line if the term is still too long for 3 lines. `GoTreeResult` now exposes per-namespace path dicts (`pdf_paths`, `png_paths`, `svg_paths`) keyed by namespace.
 
 **Locked by.** `tests/regressions/test_go_tree_no_label_clipping.py`.
+
+### BUG-005 — GO-tree figures remained unreadable: too many passthrough ancestors
+
+**Symptom.** After BUG-004's fix made labels and canvas sizes manageable, the GO-tree figures (Figure 1B / Figure 2B) were still mostly unreadable on real cherry-picked data. The `biological_process` panel in particular showed long single-child `is_a` chains (10+ ancestor terms in a vertical line from each leaf up to the namespace root) that added visual noise without information: a leaf like `proteasome-mediated ubiquitin-dependent protein catabolic process` chained through 5–7 intermediate "protein catabolic", "catabolic", "metabolic" terms before joining anything else.
+
+**Root cause.** `render_go_tree` walked the *full* `is_a` ancestor closure of every plotted leaf and displayed every ancestor as a node. Non-branching ancestors (single-child chains between leaves and the namespace root, or between two true branching points) contributed nothing to the structural story but consumed canvas space and reader attention.
+
+**Fix.** `render_go_tree` now computes the **Steiner tree** on the plotted leaves plus the namespace root and renders only that subset. A node is *essential* (kept) iff (a) it is a plotted leaf, (b) it is the namespace root, or (c) it is a true branching point — i.e. it has at least two direct children whose dominated-leaf subsets are non-empty and distinct. All other ancestors are pruned. Edges connecting two essential nodes via a single direct `is_a` parent are drawn solid; edges that cross collapsed ancestors (representing a transitive `is_a+` path) are drawn dashed (`linestyle="--"`). `GoTreeResult` now reports both `n_internal_nodes` (essential ancestors shown) and `n_internal_nodes_pruned` (collapsed ancestors), and the figure legend explains the solid/dashed convention.
+
+**Locked by.** `tests/regressions/test_go_tree_steiner_reduction.py`.
 
 ---
 

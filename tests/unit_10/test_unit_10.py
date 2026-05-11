@@ -102,6 +102,7 @@ def _make_mock_go_tree_result(stem="figure2B_unbiased_tree"):
     result = MagicMock()
     result.n_leaf_terms = 8
     result.n_internal_nodes = 12
+    result.n_internal_nodes_pruned = 0
     result.n_namespaces = 1
     ns = "biological_process"
     result.pdf_paths = {ns: Path(f"/tmp/output/{stem}_{ns}.pdf")}

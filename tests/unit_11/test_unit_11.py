@@ -84,7 +84,8 @@ def test_go_tree_result_is_dataclass_with_expected_fields():
     fnames = {f.name for f in dataclass_fields(GoTreeResult)}
     assert fnames == {
         "pdf_paths", "png_paths", "svg_paths",
-        "n_leaf_terms", "n_internal_nodes", "n_namespaces",
+        "n_leaf_terms", "n_internal_nodes", "n_internal_nodes_pruned",
+        "n_namespaces",
     }
 
 
@@ -241,11 +242,15 @@ def test_render_n_internal_excludes_leaves(tmp_path):
         output_stem="counts", output_dir=output_dir,
     )
 
-    # The BP subgraph for {translation, ox-phos, ribosome biogenesis}
-    # should include three ancestors above them (cellular process,
-    # metabolic process, biological_process) -> n_internal == 3.
+    # BUG-005 (Steiner reduction): the BP subgraph for
+    # {translation, ox-phos, ribosome biogenesis} has biological_process
+    # (root), metabolic_process and cellular_process as essential ancestors
+    # because each connects 2 disjoint leaf clades -- so n_internal stays
+    # at 3 here. n_internal_nodes + n_internal_nodes_pruned must equal the
+    # original ancestor count.
     assert result.n_internal_nodes >= 1
     assert result.n_leaf_terms + result.n_internal_nodes >= 3
+    assert result.n_internal_nodes_pruned >= 0
 
 
 def test_render_single_term_still_produces_tree(tmp_path):

@@ -132,6 +132,7 @@ def _make_mock_go_tree_result(stem="figure2B_unbiased_tree", output_dir=None):
     result.svg_paths = {ns: base / f"{stem}_{ns}.svg"}
     result.n_leaf_terms = 8
     result.n_internal_nodes = 12
+    result.n_internal_nodes_pruned = 0
     result.n_namespaces = 1
     return result
 

@@ -1317,7 +1317,7 @@ assert Path(project_dir / "data").is_dir(), "data/ directory must exist in the p
 
 ### Tier 1 -- Description
 
-This unit renders a GO-term hierarchy figure that pairs with each of the cherry-picked (Figure 1) and unbiased (Figure 2) dot plots. The tree's leaves are the GO terms displayed in the corresponding dot plot; its internal nodes are the union of `is_a` ancestors of those leaves, walked recursively up to the namespace root. Terms are partitioned by GO namespace (biological_process / molecular_function / cellular_component) into vertically stacked panels. The unit reuses the OBO parser and ancestor-walk helpers from Unit 7 and produces no new statistical encodings — the figure is purely structural.
+This unit renders a GO-term hierarchy figure that pairs with each of the cherry-picked (Figure 1) and unbiased (Figure 2) dot plots. The tree's leaves are the GO terms displayed in the corresponding dot plot; its internal nodes are the minimal set of `is_a` ancestors needed to preserve the branching structure of those leaves — the Steiner tree on the leaves plus each namespace root (BUG-005). Non-branching intermediate ancestors are collapsed; edges that cross collapsed ancestors are rendered dashed (transitive `is_a+`) while edges between direct `is_a` parents and children are rendered solid. Terms are partitioned by GO namespace (biological_process / molecular_function / cellular_component) into one file per populated namespace. The unit reuses the OBO parser and ancestor-walk helpers from Unit 7 and produces no new statistical encodings — the figure is purely structural.
 
 ### Tier 2 -- Signatures
 
@@ -1335,8 +1335,9 @@ class GoTreeResult:
     png_paths: dict[str, Path]   # keyed by GO namespace
     svg_paths: dict[str, Path]   # keyed by GO namespace
     n_leaf_terms: int
-    n_internal_nodes: int
-    n_namespaces: int            # == len(pdf_paths) == len(png_paths) == len(svg_paths)
+    n_internal_nodes: int           # essential ancestors actually shown (post-Steiner)
+    n_internal_nodes_pruned: int    # non-branching ancestors collapsed by Steiner reduction
+    n_namespaces: int               # == len(pdf_paths) == len(png_paths) == len(svg_paths)
     ...
 
 
@@ -1398,15 +1399,16 @@ assert result.n_namespaces >= 1
 **Behavioral contracts:**
 
 1. The tree's leaves are exactly the GO IDs of the unique GO terms named across all `groups`, after lookup from `cohort.profiles`. Term names that do not resolve to a GO ID present in the OBO are silently dropped.
-2. Internal nodes are the union of `is_a` ancestors of every leaf, walked recursively up to namespace roots. `part_of` relationships are not represented.
+2. Internal nodes are the **Steiner-tree** subset of `is_a` ancestors of every leaf: a node is kept iff it is a plotted leaf, a namespace root, or a branching point with ≥2 direct children whose dominated-leaf subsets are non-empty and distinct (BUG-005). Non-branching intermediate ancestors are collapsed. `part_of` relationships are not represented.
 3. Nodes are partitioned by GO namespace; one file per populated namespace is rendered (BUG-004). Namespaces with no nodes are not allocated a file. The per-namespace files are written to `{output_stem}_{namespace}.{pdf,png,svg}` and reported via `GoTreeResult.pdf_paths` / `png_paths` / `svg_paths`, keyed by namespace.
 4. Within each panel, depth equals the longest `is_a` distance from a node to any namespace root. Roots (depth 0) appear at the top of the panel; leaves appear at greatest depth.
 5. Within a row, x-positions are assigned via a single-pass barycenter on parent x-values, with adjacent-x collision spacing of 1.0 to keep nodes visually separated.
-6. Edges are drawn as right-angle elbow connectors (vertical drop, horizontal jog, vertical drop). Leaves are rendered with bold text; internal nodes with regular text.
+6. Edges are drawn as right-angle elbow connectors (vertical drop, horizontal jog, vertical drop). Solid edges (`linestyle="-"`) denote direct `is_a` parent relationships between two displayed nodes; dashed edges (`linestyle="--"`) denote transitive `is_a+` relationships where intermediate non-essential ancestors were collapsed (BUG-005). Leaves are rendered with bold text; internal nodes with regular text.
 7. The figure has no NES/FDR encoding. It encodes only structural relationships from the GO ontology.
 8. Output files are written per namespace to `{output_stem}_{namespace}.pdf`, `{output_stem}_{namespace}.png`, and `{output_stem}_{namespace}.svg` in `output_dir` at the configured DPI. Path dicts in `GoTreeResult` are keyed by namespace and contain one entry per populated namespace.
-9. `n_leaf_terms`, `n_internal_nodes`, and `n_namespaces` in the returned `GoTreeResult` count the rendered nodes and namespaces exactly; `n_namespaces == len(pdf_paths)`.
+9. `n_leaf_terms`, `n_internal_nodes`, and `n_namespaces` in the returned `GoTreeResult` count the rendered nodes and namespaces exactly; `n_namespaces == len(pdf_paths)`. `n_internal_nodes_pruned` records the count of non-branching ancestors collapsed by the Steiner reduction; `n_internal_nodes + n_internal_nodes_pruned` equals the size of the full `is_a` ancestor closure of the plotted leaves.
 10. Per-namespace figure width auto-scales to the widest row in that namespace (`max(8.0, 1.2 × widest_row)` inches); per-namespace figure height auto-scales to the longest is_a depth (`max(3.5, 1.0 + 1.0 × n_levels)` inches). Long labels are wrapped onto at most 3 lines via `textwrap` rather than hard-truncated, so full GO term names remain readable (BUG-004).
+11. The Steiner-tree reduction (BUG-005) is unconditional: there is no config knob to disable it. The full ancestor closure is only computed internally as input to the reduction; only the essential subset is displayed.
 
 **Dependencies:** Unit 1 (`CohortData`), Unit 3 (`CategoryGroup` type), Unit 7 (`_parse_obo`, `_get_ancestors`, `download_or_load_obo`).
 

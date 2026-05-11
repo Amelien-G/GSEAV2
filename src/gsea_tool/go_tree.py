@@ -46,12 +46,19 @@ class GoTreeResult:
     Each path dict is keyed by GO namespace
     (``biological_process``/``molecular_function``/``cellular_component``).
     Only populated namespaces appear in the dicts.
+
+    ``n_internal_nodes`` counts the *essential* internal nodes shown in the
+    figure (namespace roots plus true branching points on the plotted leaves).
+    ``n_internal_nodes_pruned`` counts ancestors that were elided by the
+    Steiner-tree reduction (BUG-005); the sum of the two equals the size of
+    the full ``is_a`` ancestor closure of the plotted leaves.
     """
     pdf_paths: dict[str, Path]
     png_paths: dict[str, Path]
     svg_paths: dict[str, Path]
     n_leaf_terms: int
     n_internal_nodes: int
+    n_internal_nodes_pruned: int
     n_namespaces: int
 
 
@@ -152,6 +159,137 @@ def build_go_tree(
     }
 
     return parent_to_children, go_id_to_name, go_id_to_namespace, leaf_go_ids
+
+
+# ---------------------------------------------------------------------------
+# Steiner-tree reduction (BUG-005). Replaces the full ancestor-closure
+# rendering with the minimal tree on plotted leaves + namespace root.
+# ---------------------------------------------------------------------------
+
+
+def _compute_leaves_below(
+    parent_to_children: dict[str, set[str]],
+    leaf_go_ids: set[str],
+    namespace_nodes: set[str],
+) -> dict[str, frozenset[str]]:
+    """For each node in namespace_nodes, return the set of plotted leaves
+    reachable as descendants (the node itself counts if it's a plotted leaf).
+    """
+    cache: dict[str, frozenset[str]] = {}
+
+    def visit(v: str, ancestors: frozenset[str]) -> frozenset[str]:
+        if v in cache:
+            return cache[v]
+        if v in ancestors:
+            return frozenset()  # cycle guard; is_a is acyclic so unreachable in practice
+        ancestors = ancestors | {v}
+        below: set[str] = set()
+        if v in leaf_go_ids:
+            below.add(v)
+        for c in parent_to_children.get(v, ()):
+            if c in namespace_nodes:
+                below |= visit(c, ancestors)
+        result = frozenset(below)
+        cache[v] = result
+        return result
+
+    for v in namespace_nodes:
+        visit(v, frozenset())
+    return cache
+
+
+def _compute_essential_nodes(
+    parent_to_children: dict[str, set[str]],
+    leaf_go_ids: set[str],
+    namespace_nodes: set[str],
+) -> set[str]:
+    """Steiner-tree node set for one namespace (BUG-005).
+
+    A node v is essential iff one of:
+    - v is a plotted leaf, OR
+    - v is a namespace root (no parent in namespace_nodes), OR
+    - v has at least two direct children whose dominated-leaf subsets are
+      non-empty and distinct (v is a branching point connecting >=2 leaves
+      that cannot be reached through a single child).
+    """
+    leaves_below = _compute_leaves_below(parent_to_children, leaf_go_ids, namespace_nodes)
+
+    parents_of: dict[str, set[str]] = {n: set() for n in namespace_nodes}
+    for p, kids in parent_to_children.items():
+        if p not in namespace_nodes:
+            continue
+        for c in kids:
+            if c in namespace_nodes:
+                parents_of[c].add(p)
+
+    essential: set[str] = set()
+    for v in namespace_nodes:
+        if v in leaf_go_ids:
+            essential.add(v)
+            continue
+        if not parents_of[v]:
+            # namespace root
+            essential.add(v)
+            continue
+        # Children's dominated-leaf subsets (intersected with L).
+        child_subsets: set[frozenset[str]] = set()
+        for c in parent_to_children.get(v, ()):
+            if c not in namespace_nodes:
+                continue
+            sub = leaves_below.get(c, frozenset())
+            if sub:
+                child_subsets.add(sub)
+            if len(child_subsets) >= 2:
+                break
+        if len(child_subsets) >= 2:
+            essential.add(v)
+    return essential
+
+
+def _compute_reduced_edges(
+    parent_to_children: dict[str, set[str]],
+    essential_nodes: set[str],
+    namespace_nodes: set[str],
+) -> dict[tuple[str, str], bool]:
+    """Edges between essential nodes after Steiner reduction.
+
+    Returns ``{(child, parent): is_direct}``: ``True`` if the edge corresponds
+    to a single ``is_a`` step in the original DAG, ``False`` if one or more
+    non-essential ancestors were collapsed (rendered dashed). When both a
+    direct and an indirect path connect the same essential pair, the entry
+    is recorded as direct.
+    """
+    parents_of: dict[str, set[str]] = {n: set() for n in namespace_nodes}
+    for p, kids in parent_to_children.items():
+        if p not in namespace_nodes:
+            continue
+        for c in kids:
+            if c in namespace_nodes:
+                parents_of[c].add(p)
+
+    edges: dict[tuple[str, str], bool] = {}
+
+    for child in essential_nodes:
+        for parent in parents_of.get(child, ()):
+            if parent in essential_nodes:
+                edges[(child, parent)] = True  # direct is_a, solid
+            else:
+                # Walk up through non-essential ancestors until we hit
+                # essential anchors. All reachable essential anchors get a
+                # dashed edge from `child` unless already marked direct.
+                visited: set[str] = {parent}
+                stack: list[str] = [parent]
+                while stack:
+                    n = stack.pop()
+                    for p in parents_of.get(n, ()):
+                        if p in visited:
+                            continue
+                        visited.add(p)
+                        if p in essential_nodes:
+                            edges.setdefault((child, p), False)  # dashed
+                        else:
+                            stack.append(p)
+    return edges
 
 
 def _depth_from_roots(
@@ -266,37 +404,51 @@ def _max_row_width(
 
 def _render_namespace_panel(
     ax,
-    nodes: set[str],
+    essential_nodes: set[str],
     leaf_go_ids: set[str],
-    parent_to_children: dict[str, set[str]],
+    reduced_edges: dict[tuple[str, str], bool],
     go_id_to_name: dict[str, str],
     namespace: str,
 ) -> dict[str, tuple[float, float]]:
-    """Draw one namespace panel. Returns the positions used (for sizing decisions)."""
-    pos, n_levels = _layout_namespace(nodes, parent_to_children)
+    """Draw one Steiner-reduced namespace panel (BUG-005).
+
+    Solid edges represent direct ``is_a`` parents; dashed edges represent
+    transitive ``is_a+`` paths where one or more non-essential ancestors were
+    collapsed for legibility. Returns the positions used (for sizing).
+    """
+    # Reduced parent-to-children adjacency for layout (depths in reduced graph).
+    reduced_p2c: dict[str, set[str]] = {n: set() for n in essential_nodes}
+    for (child, parent), _ in reduced_edges.items():
+        if parent in reduced_p2c:
+            reduced_p2c[parent].add(child)
+
+    pos, n_levels = _layout_namespace(essential_nodes, reduced_p2c)
     if not pos:
         ax.text(0.5, 0.5, f"(no terms in {namespace})", ha="center", va="center",
                 transform=ax.transAxes, fontsize=_NODE_FONT_SIZE)
         ax.axis("off")
         return pos
 
-    # Draw edges first (right-angle elbow: vertical drop from parent, then horizontal)
-    for parent, kids in parent_to_children.items():
-        if parent not in pos:
+    # Draw edges. Right-angle elbow stays the same; linestyle encodes direct
+    # vs collapsed is_a path.
+    for (kid, parent), is_direct in reduced_edges.items():
+        if kid not in pos or parent not in pos:
             continue
-        for kid in kids:
-            if kid not in pos:
-                continue
-            px, py = pos[parent]
-            cx, cy = pos[kid]
-            # Elbow: down to mid-y, then over, then down
-            mid_y = (py + cy) / 2.0
-            ax.plot([px, px], [py, mid_y], color=_EDGE_COLOR, linewidth=_EDGE_WIDTH, zorder=1)
-            ax.plot([px, cx], [mid_y, mid_y], color=_EDGE_COLOR, linewidth=_EDGE_WIDTH, zorder=1)
-            ax.plot([cx, cx], [mid_y, cy], color=_EDGE_COLOR, linewidth=_EDGE_WIDTH, zorder=1)
+        px, py = pos[parent]
+        cx, cy = pos[kid]
+        mid_y = (py + cy) / 2.0
+        linestyle = "-" if is_direct else "--"
+        ax.plot([px, px], [py, mid_y],
+                color=_EDGE_COLOR, linewidth=_EDGE_WIDTH,
+                linestyle=linestyle, zorder=1)
+        ax.plot([px, cx], [mid_y, mid_y],
+                color=_EDGE_COLOR, linewidth=_EDGE_WIDTH,
+                linestyle=linestyle, zorder=1)
+        ax.plot([cx, cx], [mid_y, cy],
+                color=_EDGE_COLOR, linewidth=_EDGE_WIDTH,
+                linestyle=linestyle, zorder=1)
 
-    # Draw nodes as text labels. BUG-004: wrap rather than truncate so full
-    # GO term names remain readable in dense panels.
+    # Draw nodes as text labels. BUG-004 wrap policy still applies.
     for go_id, (x, y) in pos.items():
         is_leaf = go_id in leaf_go_ids
         weight = _LEAF_FONT_WEIGHT if is_leaf else _INTERNAL_FONT_WEIGHT
@@ -363,7 +515,7 @@ def render_go_tree(
     )
 
     all_nodes = set(go_id_to_name.keys())
-    n_internal = len(all_nodes) - len(leaf_go_ids)
+    n_internal_original = len(all_nodes) - len(leaf_go_ids)
 
     # Partition nodes by namespace; preserve canonical ordering.
     by_namespace: dict[str, set[str]] = {}
@@ -385,19 +537,34 @@ def render_go_tree(
     png_paths: dict[str, Path] = {}
     svg_paths: dict[str, Path] = {}
 
+    n_internal_essential = 0
+
     for ns in ordered_namespaces:
-        # Layout once to learn the dimensions, then size the canvas before drawing.
-        pos, n_levels = _layout_namespace(by_namespace[ns], parent_to_children)
-        widest_row = _max_row_width(pos)
+        ns_nodes = by_namespace[ns]
+        essential = _compute_essential_nodes(
+            parent_to_children, leaf_go_ids, ns_nodes
+        )
+        reduced_edges = _compute_reduced_edges(
+            parent_to_children, essential, ns_nodes
+        )
+        n_internal_essential += sum(1 for v in essential if v not in leaf_go_ids)
+
+        # Pre-layout on reduced graph so we can size the canvas.
+        reduced_p2c: dict[str, set[str]] = {n: set() for n in essential}
+        for (child, parent), _ in reduced_edges.items():
+            if parent in reduced_p2c:
+                reduced_p2c[parent].add(child)
+        pos_preview, n_levels = _layout_namespace(essential, reduced_p2c)
+        widest_row = _max_row_width(pos_preview)
         fig_width = max(_MIN_FIG_WIDTH, _PER_NODE_INCHES * max(widest_row, 1))
         fig_height = max(_MIN_FIG_HEIGHT, 1.0 + _HEIGHT_PER_LEVEL * max(n_levels, 1))
 
         fig, ax = plt.subplots(figsize=(fig_width, fig_height))
         _render_namespace_panel(
             ax,
-            by_namespace[ns],
+            essential,
             leaf_go_ids,
-            parent_to_children,
+            reduced_edges,
             go_id_to_name,
             ns,
         )
@@ -429,11 +596,14 @@ def render_go_tree(
         png_paths[ns] = png_path
         svg_paths[ns] = svg_path
 
+    n_internal_pruned = n_internal_original - n_internal_essential
+
     return GoTreeResult(
         pdf_paths=pdf_paths,
         png_paths=png_paths,
         svg_paths=svg_paths,
         n_leaf_terms=len(leaf_go_ids),
-        n_internal_nodes=n_internal,
+        n_internal_nodes=n_internal_essential,
+        n_internal_nodes_pruned=n_internal_pruned,
         n_namespaces=len(ordered_namespaces),
     )

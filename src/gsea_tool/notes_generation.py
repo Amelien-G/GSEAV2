@@ -129,16 +129,19 @@ def format_figure_legends(notes_input: NotesInput) -> str:
         sections.append("### Figure 1B: Cherry-Picked GO Term Hierarchy")
         sections.append("")
         sections.append(
-            f"Figure 1B displays the Gene Ontology hierarchy that organizes the "
-            f"{f1b.n_leaf_terms} cherry-picked GO terms shown in Figure 1. "
-            f"Each plotted term is rendered as a leaf (bold label) connected to its "
-            f"is_a ancestors (regular labels) up to the namespace root. "
-            f"{f1b.n_internal_nodes} internal ancestor nodes are shown in addition to the leaves. "
-            f"Terms are split into {f1b.n_namespaces} per-namespace file(s), one per Gene "
-            f"Ontology namespace (biological process / molecular function / cellular "
-            f"component) so dense panels can use the canvas width their widest row requires. "
-            f"No statistical encoding is applied to nodes; the figure summarizes structural "
-            f"relationships only."
+            f"Figure 1B displays the minimal Gene Ontology hierarchy (Steiner tree) "
+            f"connecting the {f1b.n_leaf_terms} cherry-picked GO terms shown in Figure 1 "
+            f"to their namespace roots. Each plotted term is rendered as a leaf (bold "
+            f"label); only essential branching-point ancestors are shown as internal nodes "
+            f"(regular labels) -- {f1b.n_internal_nodes} essential ancestors are displayed "
+            f"and {f1b.n_internal_nodes_pruned} non-branching intermediate ancestors were "
+            f"collapsed for legibility. Solid edges denote direct `is_a` parent relationships; "
+            f"dashed edges denote transitive `is_a+` paths where collapsed ancestors lie "
+            f"between the connected nodes. Terms are split into {f1b.n_namespaces} "
+            f"per-namespace file(s), one per Gene Ontology namespace (biological process / "
+            f"molecular function / cellular component) so dense panels can use the canvas "
+            f"width their widest row requires. No statistical encoding is applied to nodes; "
+            f"the figure summarizes structural relationships only."
         )
         sections.append("")
 
@@ -168,16 +171,19 @@ def format_figure_legends(notes_input: NotesInput) -> str:
         sections.append("### Figure 2B: Unbiased GO Term Hierarchy")
         sections.append("")
         sections.append(
-            f"Figure 2B displays the Gene Ontology hierarchy that organizes the "
-            f"{f2b.n_leaf_terms} unbiased-selected GO terms shown in Figure 2. "
-            f"Each plotted term is rendered as a leaf (bold label) connected to its "
-            f"is_a ancestors (regular labels) up to the namespace root. "
-            f"{f2b.n_internal_nodes} internal ancestor nodes are shown in addition to the leaves. "
-            f"Terms are split into {f2b.n_namespaces} per-namespace file(s), one per Gene "
-            f"Ontology namespace (biological process / molecular function / cellular "
-            f"component) so dense panels can use the canvas width their widest row requires. "
-            f"No statistical encoding is applied to nodes; the figure summarizes structural "
-            f"relationships only."
+            f"Figure 2B displays the minimal Gene Ontology hierarchy (Steiner tree) "
+            f"connecting the {f2b.n_leaf_terms} unbiased-selected GO terms shown in Figure 2 "
+            f"to their namespace roots. Each plotted term is rendered as a leaf (bold "
+            f"label); only essential branching-point ancestors are shown as internal nodes "
+            f"(regular labels) -- {f2b.n_internal_nodes} essential ancestors are displayed "
+            f"and {f2b.n_internal_nodes_pruned} non-branching intermediate ancestors were "
+            f"collapsed for legibility. Solid edges denote direct `is_a` parent relationships; "
+            f"dashed edges denote transitive `is_a+` paths where collapsed ancestors lie "
+            f"between the connected nodes. Terms are split into {f2b.n_namespaces} "
+            f"per-namespace file(s), one per Gene Ontology namespace (biological process / "
+            f"molecular function / cellular component) so dense panels can use the canvas "
+            f"width their widest row requires. No statistical encoding is applied to nodes; "
+            f"the figure summarizes structural relationships only."
         )
         sections.append("")
 
@@ -331,15 +337,21 @@ def format_methods_text(notes_input: NotesInput) -> str:
             f"dot plot were resolved to their Gene Ontology IDs and combined with "
             f"the union of their is_a ancestors up to the namespace root, walked "
             f"recursively against the same OBO file used for ontology resolution "
-            f"({cfg.clustering.go_obo_url}). The resulting node set was partitioned "
-            f"by GO namespace (biological_process / molecular_function / cellular_component) "
-            f"and rendered as a top-down hierarchical tree per namespace, written to one "
-            f"file per populated namespace with its own canvas size, so dense panels are "
-            f"not clipped. Depth was computed as the longest is_a path to a root and "
-            f"within-row x-positions assigned by parent-mean barycenter. Plotted terms "
-            f"appear as bold leaves; ancestor terms appear as regular-weight internal "
-            f"nodes. Long labels are wrapped onto multiple lines rather than truncated. "
-            f"Only is_a relationships are used; part_of relationships are not represented."
+            f"({cfg.clustering.go_obo_url}). The resulting node set was reduced to a "
+            f"minimal Steiner tree on the plotted leaves and namespace roots (BUG-005), "
+            f"keeping only branching-point ancestors that connect two or more disjoint "
+            f"leaf clades; non-branching intermediate ancestors were collapsed for "
+            f"legibility, and edges crossing collapsed nodes are drawn dashed to indicate "
+            f"a transitive `is_a+` relationship (solid edges denote direct `is_a` parents). "
+            f"The reduced graph was partitioned by GO namespace (biological_process / "
+            f"molecular_function / cellular_component) and rendered as a top-down "
+            f"hierarchical tree per namespace, written to one file per populated namespace "
+            f"with its own canvas size. Depth was computed as the longest path to a root "
+            f"in the reduced graph and within-row x-positions assigned by parent-mean "
+            f"barycenter. Plotted terms appear as bold leaves; essential ancestor terms "
+            f"appear as regular-weight internal nodes. Long labels are wrapped onto "
+            f"multiple lines rather than truncated. Only is_a relationships are used; "
+            f"part_of relationships are not represented."
         )
         sections.append("")
 
@@ -431,7 +443,8 @@ def format_summary_statistics(notes_input: NotesInput) -> str:
         f1b = ni.fig1b_result
         sections.append(
             f"Figure 1B GO-tree: {f1b.n_leaf_terms} leaf terms, "
-            f"{f1b.n_internal_nodes} ancestor nodes, "
+            f"{f1b.n_internal_nodes} essential ancestor nodes shown "
+            f"({f1b.n_internal_nodes_pruned} non-branching ancestors collapsed), "
             f"{f1b.n_namespaces} namespace panel(s)."
         )
         sections.append("")
@@ -439,7 +452,8 @@ def format_summary_statistics(notes_input: NotesInput) -> str:
         f2b = ni.fig2b_result
         sections.append(
             f"Figure 2B GO-tree: {f2b.n_leaf_terms} leaf terms, "
-            f"{f2b.n_internal_nodes} ancestor nodes, "
+            f"{f2b.n_internal_nodes} essential ancestor nodes shown "
+            f"({f2b.n_internal_nodes_pruned} non-branching ancestors collapsed), "
             f"{f2b.n_namespaces} namespace panel(s)."
         )
         sections.append("")
