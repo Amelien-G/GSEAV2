@@ -103,9 +103,10 @@ def _make_mock_go_tree_result(stem="figure2B_unbiased_tree"):
     result.n_leaf_terms = 8
     result.n_internal_nodes = 12
     result.n_namespaces = 1
-    result.pdf_path = Path(f"/tmp/output/{stem}.pdf")
-    result.png_path = Path(f"/tmp/output/{stem}.png")
-    result.svg_path = Path(f"/tmp/output/{stem}.svg")
+    ns = "biological_process"
+    result.pdf_paths = {ns: Path(f"/tmp/output/{stem}_{ns}.pdf")}
+    result.png_paths = {ns: Path(f"/tmp/output/{stem}_{ns}.png")}
+    result.svg_paths = {ns: Path(f"/tmp/output/{stem}_{ns}.svg")}
     return result
 
 

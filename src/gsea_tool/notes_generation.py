@@ -134,8 +134,9 @@ def format_figure_legends(notes_input: NotesInput) -> str:
             f"Each plotted term is rendered as a leaf (bold label) connected to its "
             f"is_a ancestors (regular labels) up to the namespace root. "
             f"{f1b.n_internal_nodes} internal ancestor nodes are shown in addition to the leaves. "
-            f"Terms are split across {f1b.n_namespaces} panel(s), one per Gene Ontology "
-            f"namespace (biological process / molecular function / cellular component). "
+            f"Terms are split into {f1b.n_namespaces} per-namespace file(s), one per Gene "
+            f"Ontology namespace (biological process / molecular function / cellular "
+            f"component) so dense panels can use the canvas width their widest row requires. "
             f"No statistical encoding is applied to nodes; the figure summarizes structural "
             f"relationships only."
         )
@@ -172,8 +173,9 @@ def format_figure_legends(notes_input: NotesInput) -> str:
             f"Each plotted term is rendered as a leaf (bold label) connected to its "
             f"is_a ancestors (regular labels) up to the namespace root. "
             f"{f2b.n_internal_nodes} internal ancestor nodes are shown in addition to the leaves. "
-            f"Terms are split across {f2b.n_namespaces} panel(s), one per Gene Ontology "
-            f"namespace (biological process / molecular function / cellular component). "
+            f"Terms are split into {f2b.n_namespaces} per-namespace file(s), one per Gene "
+            f"Ontology namespace (biological process / molecular function / cellular "
+            f"component) so dense panels can use the canvas width their widest row requires. "
             f"No statistical encoding is applied to nodes; the figure summarizes structural "
             f"relationships only."
         )
@@ -331,11 +333,13 @@ def format_methods_text(notes_input: NotesInput) -> str:
             f"recursively against the same OBO file used for ontology resolution "
             f"({cfg.clustering.go_obo_url}). The resulting node set was partitioned "
             f"by GO namespace (biological_process / molecular_function / cellular_component) "
-            f"and rendered as a top-down hierarchical tree per namespace, with depth "
-            f"computed as the longest is_a path to a root and within-row x-positions "
-            f"assigned by parent-mean barycenter. Plotted terms appear as bold leaves; "
-            f"ancestor terms appear as regular-weight internal nodes. Only is_a "
-            f"relationships are used; part_of relationships are not represented."
+            f"and rendered as a top-down hierarchical tree per namespace, written to one "
+            f"file per populated namespace with its own canvas size, so dense panels are "
+            f"not clipped. Depth was computed as the longest is_a path to a root and "
+            f"within-row x-positions assigned by parent-mean barycenter. Plotted terms "
+            f"appear as bold leaves; ancestor terms appear as regular-weight internal "
+            f"nodes. Long labels are wrapped onto multiple lines rather than truncated. "
+            f"Only is_a relationships are used; part_of relationships are not represented."
         )
         sections.append("")
 

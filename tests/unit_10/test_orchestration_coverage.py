@@ -126,9 +126,10 @@ def _make_mock_go_tree_result(stem="figure2B_unbiased_tree", output_dir=None):
     """Create a mock GoTreeResult."""
     result = MagicMock()
     base = output_dir or Path("/tmp/output")
-    result.pdf_path = base / f"{stem}.pdf"
-    result.png_path = base / f"{stem}.png"
-    result.svg_path = base / f"{stem}.svg"
+    ns = "biological_process"
+    result.pdf_paths = {ns: base / f"{stem}_{ns}.pdf"}
+    result.png_paths = {ns: base / f"{stem}_{ns}.png"}
+    result.svg_paths = {ns: base / f"{stem}_{ns}.svg"}
     result.n_leaf_terms = 8
     result.n_internal_nodes = 12
     result.n_namespaces = 1

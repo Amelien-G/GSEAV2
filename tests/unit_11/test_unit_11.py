@@ -83,7 +83,7 @@ def _make_groups_mixed_namespace() -> list[CategoryGroup]:
 def test_go_tree_result_is_dataclass_with_expected_fields():
     fnames = {f.name for f in dataclass_fields(GoTreeResult)}
     assert fnames == {
-        "pdf_path", "png_path", "svg_path",
+        "pdf_paths", "png_paths", "svg_paths",
         "n_leaf_terms", "n_internal_nodes", "n_namespaces",
     }
 
@@ -186,9 +186,10 @@ def test_render_writes_pdf_png_svg(tmp_path):
         output_stem="bp_tree", output_dir=output_dir,
     )
 
-    assert result.pdf_path.exists()
-    assert result.png_path.exists()
-    assert result.svg_path.exists()
+    assert len(result.pdf_paths) >= 1
+    assert all(p.exists() for p in result.pdf_paths.values())
+    assert all(p.exists() for p in result.png_paths.values())
+    assert all(p.exists() for p in result.svg_paths.values())
 
 
 def test_render_single_namespace_one_panel(tmp_path):
@@ -205,6 +206,9 @@ def test_render_single_namespace_one_panel(tmp_path):
 
     assert result.n_namespaces == 1
     assert result.n_leaf_terms == 3
+    assert len(result.pdf_paths) == 1
+    assert len(result.png_paths) == 1
+    assert len(result.svg_paths) == 1
 
 
 def test_render_mixed_namespaces_multiple_panels(tmp_path):
@@ -221,6 +225,8 @@ def test_render_mixed_namespaces_multiple_panels(tmp_path):
 
     assert result.n_namespaces == 2
     assert result.n_leaf_terms == 3
+    assert len(result.pdf_paths) == 2
+    assert set(result.pdf_paths.keys()) == {"biological_process", "molecular_function"}
 
 
 def test_render_n_internal_excludes_leaves(tmp_path):
@@ -255,7 +261,7 @@ def test_render_single_term_still_produces_tree(tmp_path):
         output_stem="solo", output_dir=output_dir,
     )
 
-    assert result.pdf_path.exists()
+    assert all(p.exists() for p in result.pdf_paths.values())
     assert result.n_leaf_terms == 1
 
 
@@ -282,6 +288,10 @@ def test_render_paths_use_provided_stem(tmp_path):
         output_stem="my_custom_stem", output_dir=output_dir,
     )
 
-    assert result.pdf_path.name == "my_custom_stem.pdf"
-    assert result.png_path.name == "my_custom_stem.png"
-    assert result.svg_path.name == "my_custom_stem.svg"
+    # Per-namespace stems: {stem}_{namespace}.{ext}
+    for ns, p in result.pdf_paths.items():
+        assert p.name == f"my_custom_stem_{ns}.pdf"
+    for ns, p in result.png_paths.items():
+        assert p.name == f"my_custom_stem_{ns}.png"
+    for ns, p in result.svg_paths.items():
+        assert p.name == f"my_custom_stem_{ns}.svg"

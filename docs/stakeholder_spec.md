@@ -201,9 +201,13 @@ the structural context that the flat dot plots omit.
   the figure is purely structural.
 - **Conditional production:** Figure 1B is produced whenever Figure 1 is
   produced; Figure 2B is always produced.
-- **Output filenames:** `figure1B_cherry_picked_tree.{pdf,png,svg}` and
-  `figure2B_unbiased_tree.{pdf,png,svg}`, written alongside the dot plots
-  in the `output/` directory.
+- **Output filenames:** one file per populated GO namespace, named
+  `figure1B_cherry_picked_tree_<namespace>.{pdf,png,svg}` and
+  `figure2B_unbiased_tree_<namespace>.{pdf,png,svg}`, where
+  `<namespace>` ∈ {`biological_process`, `molecular_function`,
+  `cellular_component`}. Namespaces with no terms produce no file. Per-namespace
+  splitting was introduced by BUG-004 so each namespace's canvas width can scale
+  to the widest row in that namespace without clipping labels.
 
 ---
 
@@ -411,6 +415,18 @@ Post-delivery defects discovered after pipeline completion. Each entry reference
 
 **Locked by.** `tests/regressions/test_legend_spacing.py`.
 
+### BUG-004 — GO-tree figures clipped labels in dense namespace panels
+
+**Symptom.** The cherry-picked GO-tree figure (`figure1B_cherry_picked_tree.pdf`) and the unbiased GO-tree figure (`figure2B_unbiased_tree.pdf`) rendered labels clipped or replaced by `...` whenever a namespace panel had a wide row of nodes. The `biological_process` panel was the worst case: rows of ~10–13 nodes shared a fixed 10-inch canvas, so 7-pt term names overflowed into adjacent boxes, and any term name longer than 40 characters was hard-truncated to `<37 chars>...`.
+
+**Root cause.** Two problems in `src/unit_11/stub.py` (Unit 11, GO Tree Rendering):
+
+1. `_render_namespace_panel` truncated labels longer than 40 characters with `label[:37] + "..."` (line 250-251 of the pre-fix file).
+2. `render_go_tree` stacked all populated namespace panels into one figure at a fixed 10-inch width (`fig_width = 10.0`, line 325 of the pre-fix file), regardless of the widest row in any panel.
+
+**Fix.** Split the rendered output into one file set per populated namespace (`{stem}_<namespace>.{pdf,png,svg}`) so each namespace's canvas can size itself. Per-namespace width auto-scales as `max(8.0, 1.2 × widest_row)` inches; height scales as `max(3.5, 1.0 + 1.0 × n_levels)` inches. The 40-char truncation was removed; long labels are now wrapped onto at most 3 lines via `textwrap.wrap(width=28)` with ellipsis only on the final line if the term is still too long for 3 lines. `GoTreeResult` now exposes per-namespace path dicts (`pdf_paths`, `png_paths`, `svg_paths`) keyed by namespace.
+
+**Locked by.** `tests/regressions/test_go_tree_no_label_clipping.py`.
 
 ---
 

@@ -2,13 +2,15 @@
 
 Renders a GO-term hierarchy figure paired with a dot plot. The "leaves" of
 the tree are the GO terms displayed in the dot plot; "internal" nodes are
-their is_a ancestors walked up to the namespace root. One panel per GO
-namespace (BP / MF / CC) is stacked vertically when the leaf set spans
-more than one namespace.
+their is_a ancestors walked up to the namespace root. One file per
+populated GO namespace (biological_process / molecular_function /
+cellular_component) is written so the per-namespace figure can use the
+canvas width its widest row requires without clipping labels.
 """
 
 from pathlib import Path
 from dataclasses import dataclass
+import textwrap
 
 import matplotlib
 matplotlib.use("Agg")
@@ -27,16 +29,56 @@ _EDGE_COLOR = "#666666"
 _EDGE_WIDTH = 0.8
 _NAMESPACE_ORDER = ("biological_process", "molecular_function", "cellular_component")
 
+# Label wrapping policy (BUG-004): wrap onto at most 3 lines around _LABEL_WRAP_WIDTH
+# characters per line, with a column allocation of _PER_NODE_INCHES on the canvas.
+_LABEL_WRAP_WIDTH = 28
+_LABEL_MAX_LINES = 3
+_PER_NODE_INCHES = 1.2
+_MIN_FIG_WIDTH = 8.0
+_MIN_FIG_HEIGHT = 3.5
+_HEIGHT_PER_LEVEL = 1.0
+
 
 @dataclass
 class GoTreeResult:
-    """Metadata about a rendered GO-tree figure, for notes.md consumption."""
-    pdf_path: Path
-    png_path: Path
-    svg_path: Path
+    """Metadata about a rendered GO-tree figure, for notes.md consumption.
+
+    Each path dict is keyed by GO namespace
+    (``biological_process``/``molecular_function``/``cellular_component``).
+    Only populated namespaces appear in the dicts.
+    """
+    pdf_paths: dict[str, Path]
+    png_paths: dict[str, Path]
+    svg_paths: dict[str, Path]
     n_leaf_terms: int
     n_internal_nodes: int
     n_namespaces: int
+
+
+def _wrap_label(text: str) -> str:
+    """Wrap a GO term label onto at most _LABEL_MAX_LINES lines.
+
+    BUG-004 (post-delivery): the previous implementation truncated labels
+    longer than 40 chars with an ellipsis, which made dense panels
+    (especially biological_process) unreadable. We now wrap labels across
+    lines instead. If wrapping still overflows _LABEL_MAX_LINES, the final
+    line is ellipsised so the bbox stays bounded.
+    """
+    lines = textwrap.wrap(
+        text,
+        width=_LABEL_WRAP_WIDTH,
+        break_long_words=False,
+        break_on_hyphens=True,
+    ) or [text]
+    if len(lines) > _LABEL_MAX_LINES:
+        kept = lines[: _LABEL_MAX_LINES]
+        last = kept[-1]
+        # Trim last line so trailing "..." fits within wrap width.
+        if len(last) > _LABEL_WRAP_WIDTH - 3:
+            last = last[: _LABEL_WRAP_WIDTH - 3].rstrip()
+        kept[-1] = last + "..."
+        lines = kept
+    return "\n".join(lines)
 
 
 def _term_name_to_go_id(cohort: CohortData) -> dict[str, str]:
@@ -210,6 +252,18 @@ def _layout_namespace(
     return pos, max_depth + 1
 
 
+def _max_row_width(
+    pos: dict[str, tuple[float, float]],
+) -> int:
+    """Return the count of nodes in the most-populated row (depth band)."""
+    if not pos:
+        return 0
+    by_row: dict[float, int] = {}
+    for _, (_, y) in pos.items():
+        by_row[y] = by_row.get(y, 0) + 1
+    return max(by_row.values())
+
+
 def _render_namespace_panel(
     ax,
     nodes: set[str],
@@ -217,14 +271,14 @@ def _render_namespace_panel(
     parent_to_children: dict[str, set[str]],
     go_id_to_name: dict[str, str],
     namespace: str,
-) -> None:
-    """Draw one namespace panel."""
+) -> dict[str, tuple[float, float]]:
+    """Draw one namespace panel. Returns the positions used (for sizing decisions)."""
     pos, n_levels = _layout_namespace(nodes, parent_to_children)
     if not pos:
         ax.text(0.5, 0.5, f"(no terms in {namespace})", ha="center", va="center",
                 transform=ax.transAxes, fontsize=_NODE_FONT_SIZE)
         ax.axis("off")
-        return
+        return pos
 
     # Draw edges first (right-angle elbow: vertical drop from parent, then horizontal)
     for parent, kids in parent_to_children.items():
@@ -241,14 +295,13 @@ def _render_namespace_panel(
             ax.plot([px, cx], [mid_y, mid_y], color=_EDGE_COLOR, linewidth=_EDGE_WIDTH, zorder=1)
             ax.plot([cx, cx], [mid_y, cy], color=_EDGE_COLOR, linewidth=_EDGE_WIDTH, zorder=1)
 
-    # Draw nodes as text labels
+    # Draw nodes as text labels. BUG-004: wrap rather than truncate so full
+    # GO term names remain readable in dense panels.
     for go_id, (x, y) in pos.items():
         is_leaf = go_id in leaf_go_ids
         weight = _LEAF_FONT_WEIGHT if is_leaf else _INTERNAL_FONT_WEIGHT
-        label = go_id_to_name.get(go_id, go_id)
-        # Truncate very long labels for readability
-        if len(label) > 40:
-            label = label[:37] + "..."
+        raw_label = go_id_to_name.get(go_id, go_id)
+        label = _wrap_label(raw_label)
         ax.text(
             x, y,
             label,
@@ -268,6 +321,7 @@ def _render_namespace_panel(
     ax.set_title(namespace.replace("_", " ").title(),
                  fontsize=_NODE_FONT_SIZE + 2, fontweight="bold", loc="left")
     ax.axis("off")
+    return pos
 
 
 def render_go_tree(
@@ -282,18 +336,24 @@ def render_go_tree(
 ) -> GoTreeResult:
     """Render a GO-term hierarchy figure to PDF, PNG, and SVG.
 
+    One file set ({output_stem}_{namespace}.{pdf,png,svg}) is written per
+    populated GO namespace. Each per-namespace figure auto-scales its width
+    to the widest row in that namespace so labels fit without truncation
+    (BUG-004).
+
     Args:
         groups: ordered list of CategoryGroups (the same list passed to render_dot_plot).
         cohort: the cohort, used to map term names to GO IDs.
         obo_path: local path to the GO OBO file.
-        output_stem: base filename without extension.
+        output_stem: base filename without extension. The namespace is
+            appended to produce per-namespace files.
         output_dir: directory to write output files.
-        title: optional figure-level title.
+        title: optional figure-level title; namespace is appended in each file.
         dpi: PNG resolution.
         font_family: matplotlib font family for all text.
 
     Returns:
-        GoTreeResult with paths and summary counts.
+        GoTreeResult with per-namespace path dicts and summary counts.
     """
     if not output_dir.is_dir():
         raise OSError(f"Output directory does not exist: {output_dir}")
@@ -315,22 +375,24 @@ def render_go_tree(
         ns for ns in _NAMESPACE_ORDER if ns in by_namespace
     ] + sorted(ns for ns in by_namespace if ns not in _NAMESPACE_ORDER)
 
-    n_panels = len(ordered_namespaces)
-    if n_panels == 0:
+    if not ordered_namespaces:
         # Defensive: should not happen because build_go_tree validates inputs.
         raise ValueError("No nodes found to render")
 
     plt.rcParams["font.family"] = font_family
-    fig_height = max(3.0, sum(2.5 for _ in ordered_namespaces))
-    fig_width = 10.0
-    fig, axes = plt.subplots(
-        nrows=n_panels, ncols=1,
-        figsize=(fig_width, fig_height),
-        squeeze=False,
-    )
 
-    for ax_row, ns in zip(axes, ordered_namespaces):
-        ax = ax_row[0]
+    pdf_paths: dict[str, Path] = {}
+    png_paths: dict[str, Path] = {}
+    svg_paths: dict[str, Path] = {}
+
+    for ns in ordered_namespaces:
+        # Layout once to learn the dimensions, then size the canvas before drawing.
+        pos, n_levels = _layout_namespace(by_namespace[ns], parent_to_children)
+        widest_row = _max_row_width(pos)
+        fig_width = max(_MIN_FIG_WIDTH, _PER_NODE_INCHES * max(widest_row, 1))
+        fig_height = max(_MIN_FIG_HEIGHT, 1.0 + _HEIGHT_PER_LEVEL * max(n_levels, 1))
+
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
         _render_namespace_panel(
             ax,
             by_namespace[ns],
@@ -340,30 +402,38 @@ def render_go_tree(
             ns,
         )
 
-    if title:
-        fig.suptitle(title, fontsize=12, fontweight="bold")
+        if title:
+            fig.suptitle(
+                f"{title} -- {ns.replace('_', ' ').title()}",
+                fontsize=12,
+                fontweight="bold",
+            )
 
-    fig.patch.set_facecolor("white")
-    plt.tight_layout()
+        fig.patch.set_facecolor("white")
+        plt.tight_layout()
 
-    pdf_path = output_dir / f"{output_stem}.pdf"
-    png_path = output_dir / f"{output_stem}.png"
-    svg_path = output_dir / f"{output_stem}.svg"
+        pdf_path = output_dir / f"{output_stem}_{ns}.pdf"
+        png_path = output_dir / f"{output_stem}_{ns}.png"
+        svg_path = output_dir / f"{output_stem}_{ns}.svg"
 
-    try:
-        fig.savefig(str(pdf_path), format="pdf", dpi=dpi, bbox_inches="tight")
-        fig.savefig(str(png_path), format="png", dpi=dpi, bbox_inches="tight")
-        fig.savefig(str(svg_path), format="svg", dpi=dpi, bbox_inches="tight")
-    except Exception as e:
-        raise OSError(f"Failed to write GO tree files: {e}") from e
-    finally:
+        try:
+            fig.savefig(str(pdf_path), format="pdf", dpi=dpi, bbox_inches="tight")
+            fig.savefig(str(png_path), format="png", dpi=dpi, bbox_inches="tight")
+            fig.savefig(str(svg_path), format="svg", dpi=dpi, bbox_inches="tight")
+        except Exception as e:
+            plt.close(fig)
+            raise OSError(f"Failed to write GO tree files: {e}") from e
         plt.close(fig)
 
+        pdf_paths[ns] = pdf_path
+        png_paths[ns] = png_path
+        svg_paths[ns] = svg_path
+
     return GoTreeResult(
-        pdf_path=pdf_path,
-        png_path=png_path,
-        svg_path=svg_path,
+        pdf_paths=pdf_paths,
+        png_paths=png_paths,
+        svg_paths=svg_paths,
         n_leaf_terms=len(leaf_go_ids),
         n_internal_nodes=n_internal,
-        n_namespaces=n_panels,
+        n_namespaces=len(ordered_namespaces),
     )

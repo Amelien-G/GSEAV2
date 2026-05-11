@@ -1331,12 +1331,12 @@ from gsea_tool.cherry_picked import CategoryGroup
 
 @dataclass
 class GoTreeResult:
-    pdf_path: Path
-    png_path: Path
-    svg_path: Path
+    pdf_paths: dict[str, Path]   # keyed by GO namespace, one entry per populated namespace
+    png_paths: dict[str, Path]   # keyed by GO namespace
+    svg_paths: dict[str, Path]   # keyed by GO namespace
     n_leaf_terms: int
     n_internal_nodes: int
-    n_namespaces: int
+    n_namespaces: int            # == len(pdf_paths) == len(png_paths) == len(svg_paths)
     ...
 
 
@@ -1375,9 +1375,12 @@ assert obo_path.exists(), "OBO file must exist"
 assert output_dir.is_dir(), "Output directory must exist"
 
 # Post-conditions
-assert result.pdf_path.exists()
-assert result.png_path.exists()
-assert result.svg_path.exists()
+assert len(result.pdf_paths) == result.n_namespaces
+assert len(result.png_paths) == result.n_namespaces
+assert len(result.svg_paths) == result.n_namespaces
+assert all(p.exists() for p in result.pdf_paths.values())
+assert all(p.exists() for p in result.png_paths.values())
+assert all(p.exists() for p in result.svg_paths.values())
 assert result.n_leaf_terms >= 0
 assert result.n_namespaces >= 1
 ```
@@ -1396,13 +1399,14 @@ assert result.n_namespaces >= 1
 
 1. The tree's leaves are exactly the GO IDs of the unique GO terms named across all `groups`, after lookup from `cohort.profiles`. Term names that do not resolve to a GO ID present in the OBO are silently dropped.
 2. Internal nodes are the union of `is_a` ancestors of every leaf, walked recursively up to namespace roots. `part_of` relationships are not represented.
-3. Nodes are partitioned by GO namespace; one panel per namespace is rendered, vertically stacked. Namespaces with no nodes are not allocated a panel.
+3. Nodes are partitioned by GO namespace; one file per populated namespace is rendered (BUG-004). Namespaces with no nodes are not allocated a file. The per-namespace files are written to `{output_stem}_{namespace}.{pdf,png,svg}` and reported via `GoTreeResult.pdf_paths` / `png_paths` / `svg_paths`, keyed by namespace.
 4. Within each panel, depth equals the longest `is_a` distance from a node to any namespace root. Roots (depth 0) appear at the top of the panel; leaves appear at greatest depth.
 5. Within a row, x-positions are assigned via a single-pass barycenter on parent x-values, with adjacent-x collision spacing of 1.0 to keep nodes visually separated.
 6. Edges are drawn as right-angle elbow connectors (vertical drop, horizontal jog, vertical drop). Leaves are rendered with bold text; internal nodes with regular text.
 7. The figure has no NES/FDR encoding. It encodes only structural relationships from the GO ontology.
-8. Output files are written to `{output_stem}.pdf`, `{output_stem}.png`, and `{output_stem}.svg` in `output_dir` at the configured DPI.
-9. `n_leaf_terms`, `n_internal_nodes`, and `n_namespaces` in the returned `GoTreeResult` count the rendered nodes and panels exactly.
+8. Output files are written per namespace to `{output_stem}_{namespace}.pdf`, `{output_stem}_{namespace}.png`, and `{output_stem}_{namespace}.svg` in `output_dir` at the configured DPI. Path dicts in `GoTreeResult` are keyed by namespace and contain one entry per populated namespace.
+9. `n_leaf_terms`, `n_internal_nodes`, and `n_namespaces` in the returned `GoTreeResult` count the rendered nodes and namespaces exactly; `n_namespaces == len(pdf_paths)`.
+10. Per-namespace figure width auto-scales to the widest row in that namespace (`max(8.0, 1.2 × widest_row)` inches); per-namespace figure height auto-scales to the longest is_a depth (`max(3.5, 1.0 + 1.0 × n_levels)` inches). Long labels are wrapped onto at most 3 lines via `textwrap` rather than hard-truncated, so full GO term names remain readable (BUG-004).
 
 **Dependencies:** Unit 1 (`CohortData`), Unit 3 (`CategoryGroup` type), Unit 7 (`_parse_obo`, `_get_ancestors`, `download_or_load_obo`).
 

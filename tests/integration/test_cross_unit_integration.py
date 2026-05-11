@@ -587,11 +587,13 @@ class TestSelectionToDotPlotRendering:
 
         for f in (fig1b, fig2b):
             assert isinstance(f, GoTreeResult)
-            assert f.pdf_path.exists()
-            assert f.png_path.exists()
-            assert f.svg_path.exists()
+            assert len(f.pdf_paths) >= 1
+            assert all(p.exists() for p in f.pdf_paths.values())
+            assert all(p.exists() for p in f.png_paths.values())
+            assert all(p.exists() for p in f.svg_paths.values())
             assert f.n_leaf_terms >= 1
             assert f.n_namespaces >= 1
+            assert len(f.pdf_paths) == f.n_namespaces
 
     def test_dot_grid_uses_correct_fdr_for_absence_encoding(self, cohort):
         """build_dot_grid must produce None for cells where FDR >= threshold,

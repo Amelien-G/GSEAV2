@@ -256,15 +256,21 @@ def _run() -> None:
         print(f"  - {fig1_result.png_path}")
         print(f"  - {fig1_result.svg_path}")
     if fig1b_result is not None:
-        print(f"  - {fig1b_result.pdf_path}")
-        print(f"  - {fig1b_result.png_path}")
-        print(f"  - {fig1b_result.svg_path}")
+        for p in fig1b_result.pdf_paths.values():
+            print(f"  - {p}")
+        for p in fig1b_result.png_paths.values():
+            print(f"  - {p}")
+        for p in fig1b_result.svg_paths.values():
+            print(f"  - {p}")
     print(f"  - {fig2_result.pdf_path}")
     print(f"  - {fig2_result.png_path}")
     print(f"  - {fig2_result.svg_path}")
-    print(f"  - {fig2b_result.pdf_path}")
-    print(f"  - {fig2b_result.png_path}")
-    print(f"  - {fig2b_result.svg_path}")
+    for p in fig2b_result.pdf_paths.values():
+        print(f"  - {p}")
+    for p in fig2b_result.png_paths.values():
+        print(f"  - {p}")
+    for p in fig2b_result.svg_paths.values():
+        print(f"  - {p}")
     print(f"  - {fig3_result.pdf_path}")
     print(f"  - {fig3_result.png_path}")
     print(f"  - {fig3_result.svg_path}")
