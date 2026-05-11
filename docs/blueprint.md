@@ -673,6 +673,9 @@ assert result.n_mutants == len(cohort.mutant_ids), "Mutant count must match coho
 10. The figure is saved to `{output_stem}.pdf`, `{output_stem}.png`, and `{output_stem}.svg` in `output_dir` at the configured DPI minimum.
 11. The colormap uses `RdBu_r` (or equivalent) so that red is positive and blue is negative, matching the Gordon et al. convention.
 12. The figure uses a clean, minimal aesthetic consistent with Nature-family journal standards: no background color, no unnecessary borders, tight layout.
+13. The dot-size encoding is anchored to fixed FDR reference values (`LEGEND_FDR_EXAMPLES = (0.25, 0.05, 0.001)`), not to the per-figure data range. The three reference FDR values map to three distinct, monotonically increasing legend dots regardless of how saturated the data is. Values outside the anchor range are clamped to the extremes. Locked by `tests/regressions/test_dot_size_anchored.py` (mirrors wgcna BUG-015).
+14. Legend `Line2D.markersize` (a diameter in points) is computed from scatter `s` (an area in points²) via `2·√(s/π)`, so legend dots match the corresponding scatter dots in apparent size. Locked by `tests/regressions/test_legend_diameter_conversion.py` (mirrors wgcna BUG-013).
+15. Legend `handleheight` and `labelspacing` are scaled to the largest configured marker diameter (`2·√(max_dot_size/π)`) so legend entries do not visually overlap when `max_dot_size` is increased. The scaling has floors at matplotlib's defaults (`handleheight=0.7`, `labelspacing=0.5`). Locked by `tests/regressions/test_legend_spacing.py` (mirrors wgcna BUG-018).
 
 **Dependencies:** Unit 1 (CohortData), Unit 3 (CategoryGroup type).
 
@@ -682,7 +685,7 @@ assert result.n_mutants == len(cohort.mutant_ids), "Mutant count must match coho
 
 ### Tier 1 -- Description
 
-This unit implements Fisher's combined probability method to aggregate GSEA evidence across all mutant lines. It operates on nominal p-values keyed by GO ID from the ingested cohort data. Step 1: for each mutant, build a per-mutant p-value dictionary and a per-mutant NES dictionary, both keyed by GO ID, from the already-ingested TermRecords. If a GO term has `NOM p-val` of exactly 0.0, replace it with a configurable pseudocount (default 1e-10). Step 2: collect the union of all GO IDs across all mutants and build a p-value matrix of shape (n_GO_terms x n_mutants), imputing p = 1.0 for missing entries. Also build a parallel NES matrix (missing entries filled with NaN). Step 3: for each GO term, compute the Fisher statistic X^2 = -2 * sum(ln(p_i)) and the combined p-value from a chi-squared distribution with 2k degrees of freedom, where k is the number of mutant lines. Optionally apply Benjamini-Hochberg FDR correction on the combined p-values. The unit writes `pvalue_matrix.tsv` to the output directory. When clustering is disabled (per config), this unit also writes `fisher_combined_pvalues.tsv` (without cluster assignment columns). The unit also computes and stores the number of contributing mutant lines per GO term (lines with p < 1.0).
+This unit implements Fisher's combined probability method to aggregate GSEA evidence across all mutant lines. It operates on nominal p-values keyed by GO ID from the ingested cohort data. Step 1: for each mutant, build a per-mutant p-value dictionary keyed by GO ID from the already-ingested TermRecords. If a GO term has `NOM p-val` of exactly 0.0, replace it with a configurable pseudocount (default 1e-10). Step 2: collect the union of all GO IDs across all mutants and build a p-value matrix of shape (n_GO_terms x n_mutants), imputing p = 1.0 for missing entries. Step 3: for each GO term, compute the Fisher statistic X^2 = -2 * sum(ln(p_i)) and the combined p-value from a chi-squared distribution with 2k degrees of freedom, where k is the number of mutant lines. Optionally apply Benjamini-Hochberg FDR correction on the combined p-values. The unit writes `pvalue_matrix.tsv` to the output directory. When clustering is disabled (per config), this unit also writes `fisher_combined_pvalues.tsv` (without cluster assignment columns). The unit also computes and stores the number of contributing mutant lines per GO term (lines with p < 1.0).
 
 ### Tier 2 — Signatures
 
@@ -714,28 +717,13 @@ class FisherResult:
 def build_pvalue_dict_per_mutant(
     cohort: CohortData,
     pseudocount: float,
-) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]]]:
-    """Build per-mutant {GO_ID: nom_pval} and {GO_ID: NES} dictionaries from ingested data.
+) -> dict[str, dict[str, float]]:
+    """Build per-mutant {GO_ID: nom_pval} dictionaries from ingested data.
 
     Replaces NOM p-val of 0.0 with pseudocount. Skips records with missing
     or non-numeric NOM p-val (already filtered during ingestion).
 
-    Returns tuple of (pval_dict, nes_dict) each mapping mutant_id -> {go_id: value}.
-    """
-    ...
-
-
-def build_nes_matrix(
-    per_mutant_nes: dict[str, dict[str, float]],
-    mutant_ids: list[str],
-    go_id_order: list[str],
-) -> np.ndarray:
-    """Build the GO term x mutant NES matrix.
-
-    Missing entries are filled with NaN.
-
-    Returns:
-        matrix: np.ndarray of shape (n_go_terms, n_mutants)
+    Returns dict mapping mutant_id -> {go_id: nom_pval}.
     """
     ...
 
@@ -787,17 +775,12 @@ def run_fisher_analysis(
 
 def write_pvalue_matrix_tsv(
     matrix: np.ndarray,
-    nes_matrix: np.ndarray,
     go_id_order: list[str],
     go_id_to_name: dict[str, str],
     mutant_ids: list[str],
     output_dir: Path,
 ) -> Path:
-    """Write the p-value matrix with NES values to pvalue_matrix.tsv.
-
-    Each row contains: GO_ID, GO_Term, then for each mutant a pvalue column
-    followed by a NES column.
-    """
+    """Write the p-value matrix to pvalue_matrix.tsv."""
     ...
 
 
@@ -842,7 +825,7 @@ assert fisher_result.n_mutants == len(fisher_result.mutant_ids), "n_mutants must
 5. Combined p-values are computed from the chi-squared survival function (1 - CDF) with 2k degrees of freedom.
 6. If `apply_fdr` is True in config, Benjamini-Hochberg FDR correction is applied to the combined p-values. The corrected p-values are stored in `FisherResult.corrected_pvalues`. If False, `corrected_pvalues` is None.
 8. The number of contributing mutant lines per GO term counts how many mutant lines have p < 1.0 (i.e., the term was actually observed, not imputed) for that GO term.
-9. `pvalue_matrix.tsv` is always written to `output_dir`. For each mutant, two columns are written: `{mutant_id}_pval` and `{mutant_id}_NES`. Rows are GO IDs with an additional column for GO term name. NES values that are missing are written as empty strings.
+9. `pvalue_matrix.tsv` is always written to `output_dir`. Columns are mutant IDs, rows are GO IDs with an additional column for GO term name.
 10. When `clustering_enabled` is False, `fisher_combined_pvalues.tsv` is also written by this unit, containing GO ID, GO term name, combined p-value, and number of contributing lines. No cluster assignment column is included.
 11. The `go_id_to_name` mapping allows downstream units and TSV outputs to display human-readable term names alongside GO IDs.
 
@@ -854,7 +837,7 @@ assert fisher_result.n_mutants == len(fisher_result.mutant_ids), "n_mutants must
 
 ### Tier 1 -- Description
 
-This unit performs GO semantic similarity clustering to reduce redundancy among significantly dysregulated GO terms identified by Fisher's method. It is executed only when clustering is enabled in the configuration. Step 1: pre-filter GO terms to those with combined p-value below a configurable threshold (default 0.05). Step 2: download or load the GO OBO ontology file and the Drosophila melanogaster Gene Annotation File (GAF) from configurable URLs. HTTP requests must include a browser-like User-Agent header (e.g. `Mozilla/5.0 (compatible; GSEA-Tool/2.1)`) because the Gene Ontology server rejects requests with Python's default user-agent. Both files are cached locally after download. Step 3: compute information content for all GO terms from annotation frequencies in the GAF. Step 4: compute pairwise Lin semantic similarity between all pre-filtered GO terms. Step 5: perform hierarchical agglomerative clustering on the similarity matrix, cutting at a configurable similarity threshold (default 0.7). Step 6: within each cluster, select the representative GO term as the one with the lowest combined Fisher p-value. The unit writes `fisher_combined_pvalues.tsv` to the output directory with cluster assignments included.
+This unit performs GO semantic similarity clustering to reduce redundancy among significantly dysregulated GO terms identified by Fisher's method. It is executed only when clustering is enabled in the configuration. Step 1: pre-filter GO terms to those with combined p-value below a configurable threshold (default 0.05). Step 2: download or load the GO OBO ontology file and the Drosophila melanogaster Gene Annotation File (GAF) from configurable URLs. Both files are cached locally after download. Step 3: compute information content for all GO terms from annotation frequencies in the GAF. Step 4: compute pairwise Lin semantic similarity between all pre-filtered GO terms. Step 5: perform hierarchical agglomerative clustering on the similarity matrix, cutting at a configurable similarity threshold (default 0.7). Step 6: within each cluster, select the representative GO term as the one with the lowest combined Fisher p-value. The unit writes `fisher_combined_pvalues.tsv` to the output directory with cluster assignments included.
 
 ### Tier 2 — Signatures
 
@@ -1002,8 +985,8 @@ assert clustering_result.representatives == sorted(
 **Behavioral contracts:**
 
 1. Only GO terms with combined p-value below the configured pre-filter threshold (default 0.05) are included in the clustering. GO terms above this threshold are excluded from similarity computation.
-2. The GO OBO file and Drosophila GAF file are downloaded from configurable URLs. All HTTP requests must include a browser-like User-Agent header (the Gene Ontology server rejects Python's default user-agent). Downloaded files are cached in a `cache/` subdirectory of the project directory. If already cached, the cached version is used without re-downloading.
-3. Download failures are retried once. If the retry also fails, the unit raises `ConnectionError` with a descriptive message. The download helper must use `urllib.request.Request` with a custom User-Agent header and `urllib.request.urlopen`, not `urllib.request.urlretrieve`.
+2. The GO OBO file and Drosophila GAF file are downloaded from configurable URLs. Downloaded files are cached in a `cache/` subdirectory of the project directory. If already cached, the cached version is used without re-downloading.
+3. Download failures are retried once. If the retry also fails, the unit raises `ConnectionError` with a descriptive message.
 4. Information content is computed from annotation frequencies in the Drosophila GAF, using the GO hierarchy from the OBO file. GO terms not present in the GAF receive an IC of 0.0.
 5. Lin similarity is computed as: sim(t1, t2) = 2 * IC(MICA) / (IC(t1) + IC(t2)), where MICA is the most informative common ancestor. If IC(t1) + IC(t2) = 0, similarity is 0.0.
 6. Hierarchical agglomerative clustering uses average linkage on a distance matrix derived from the similarity matrix (distance = 1 - similarity). The dendrogram is cut at distance = 1 - similarity_threshold.
@@ -1153,6 +1136,8 @@ class NotesInput:
     unbiased_stats: UnbiasedSelectionStats
     fisher_result: FisherResult
     clustering_result: ClusteringResult | None  # None if clustering was disabled
+    fig1b_result: GoTreeResult | None = None    # GO tree paired with Figure 1
+    fig2b_result: GoTreeResult | None = None    # GO tree paired with Figure 2
     ...
 
 
@@ -1244,7 +1229,7 @@ assert notes_path.name == "notes.md", "Output filename must be notes.md"
 
 ### Tier 1 -- Description
 
-This unit is the top-level entry point for the tool. Figure 1 is produced when either (a) `cherry_pick_categories` is non-empty in the loaded config, or (b) a category mapping TSV file is provided as a CLI argument. If both are present, the config-based ontology approach takes precedence and a warning is printed to stderr. If neither is present, only Figures 2 and 3 are produced. All other parameters are controlled via `config.yaml`. The unit resolves the project directory as the repository root, computed from the script location by traversing up the correct number of parent directories (for a script at `src/package/scripts/launcher.py`, that is 4 `.parent` calls -- adjust if the script moves). It then resolves the data directory (`data/` inside the project directory), the output directory (`output/` inside the project directory, created automatically if it does not exist), and the cache directory (`cache/` inside the project directory, created automatically if it does not exist). The cache directory is passed to Unit 7 for OBO/GAF file caching. It loads the configuration (Unit 2), ingests data (Unit 1), then executes the dot plot path and meta-analysis path. The dot plot path: optionally select cherry-picked terms (Unit 3, via ontology resolution or TSV mapping), select unbiased terms (Unit 4), render Figure 1 (Unit 5, conditional), render Figure 2 (Unit 5). When using the ontology path, the OBO file is obtained via Unit 7's `download_or_load_obo` function using the URL from `config.clustering.go_obo_url`. The meta-analysis path: run Fisher's analysis (Unit 6), optionally run GO clustering (Unit 7, if enabled in config), render Figure 3 (Unit 8). Finally, generate notes.md (Unit 9) with `fig1_method` set to `"ontology"`, `"tsv"`, or `None` accordingly. This unit contains no domain logic -- it is pure wiring and CLI interface.
+This unit is the top-level entry point for the tool. Figure 1 is produced when either (a) `cherry_pick_categories` is non-empty in the loaded config, or (b) a category mapping TSV file is provided as a CLI argument. If both are present, the config-based ontology approach takes precedence and a warning is printed to stderr. If neither is present, only Figures 2 and 3 are produced. All other parameters are controlled via `config.yaml`. The unit resolves the project directory (the directory containing the script), the data directory (`data/` inside the project directory), and the output directory (`output/` inside the project directory, created automatically if it does not exist). It loads the configuration (Unit 2), ingests data (Unit 1), then executes the dot plot path and meta-analysis path. The dot plot path: optionally select cherry-picked terms (Unit 3, via ontology resolution or TSV mapping), select unbiased terms (Unit 4), render Figure 1 (Unit 5, conditional), render Figure 2 (Unit 5). When using the ontology path, the OBO file is obtained via Unit 7's `download_or_load_obo` function using the URL from `config.clustering.go_obo_url`. The meta-analysis path: run Fisher's analysis (Unit 6), optionally run GO clustering (Unit 7, if enabled in config), render Figure 3 (Unit 8). Finally, generate notes.md (Unit 9) with `fig1_method` set to `"ontology"`, `"tsv"`, or `None` accordingly. This unit contains no domain logic -- it is pure wiring and CLI interface.
 
 ### Tier 2 — Signatures
 
@@ -1309,7 +1294,7 @@ assert Path(project_dir / "data").is_dir(), "data/ directory must exist in the p
 
 1. The tool has no required CLI arguments. The only optional positional argument is the path to the category mapping file for Figure 1 (retained for backward compatibility; the preferred approach is to configure cherry-pick categories in `config.yaml`).
 2. All tunable parameters are controlled via `config.yaml`. The tool does not accept parameter overrides via CLI flags.
-3. The project directory is resolved as the repository root from the script file location. For a script at `src/package/scripts/launcher.py`, this requires 4 `.parent` calls on `Path(__file__).resolve()`. The number of `.parent` calls must match the actual depth of the script within the source tree.
+3. The project directory is resolved as the directory containing the script.
 4. The data directory is resolved as `data/` inside the project directory. It must exist.
 5. The output directory is resolved as `output/` inside the project directory. It is created automatically if it does not exist.
 6. The cache directory is resolved as `cache/` inside the project directory. It is created automatically if it does not exist and passed to Unit 7 for OBO/GAF file caching.
@@ -1320,11 +1305,106 @@ assert Path(project_dir / "data").is_dir(), "data/ directory must exist in the p
 11. Figure 3 is always produced. When clustering is disabled in config, the bar plot shows unclustered top-N terms.
 12. If any unit raises an exception, the tool prints a descriptive error message to stderr and exits with code 1. No partial output is guaranteed.
 13. The tool prints a brief summary to stdout on success: number of mutants processed, figures produced, and output file paths.
-14. Figure 1 output files use the stem `figure1_cherry_picked`. Figure 2 output files use the stem `figure2_unbiased`. Figure 3 output files use the stem `figure3_meta_analysis`.
-15. The following files are always produced in `output/`: `figure2_unbiased.{pdf,png,svg}`, `figure3_meta_analysis.{pdf,png,svg}`, `pvalue_matrix.tsv`, `fisher_combined_pvalues.tsv`, `notes.md`.
-16. When a mapping file is provided, `figure1_cherry_picked.{pdf,png,svg}` is additionally produced in `output/`.
+14. Figure 1 output files use the stem `figure1_cherry_picked`. Figure 2 output files use the stem `figure2_unbiased`. Figure 3 output files use the stem `figure3_meta_analysis`. Figure 1B uses the stem `figure1B_cherry_picked_tree`. Figure 2B uses the stem `figure2B_unbiased_tree`.
+15. The following files are always produced in `output/`: `figure2_unbiased.{pdf,png,svg}`, `figure2B_unbiased_tree.{pdf,png,svg}`, `figure3_meta_analysis.{pdf,png,svg}`, `pvalue_matrix.tsv`, `fisher_combined_pvalues.tsv`, `notes.md`.
+16. When a mapping file or `cherry_pick_categories` config is provided, `figure1_cherry_picked.{pdf,png,svg}` and `figure1B_cherry_picked_tree.{pdf,png,svg}` are additionally produced in `output/`.
 
-**Dependencies:** Unit 1 (ingest_data), Unit 2 (load_config, CherryPickCategory), Unit 3 (parse_category_mapping, select_cherry_picked_terms, resolve_categories_from_ontology), Unit 4 (select_unbiased_terms), Unit 5 (render_dot_plot), Unit 6 (run_fisher_analysis), Unit 7 (run_semantic_clustering, download_or_load_obo), Unit 8 (render_bar_plot), Unit 9 (generate_notes).
+**Dependencies:** Unit 1 (ingest_data), Unit 2 (load_config, CherryPickCategory), Unit 3 (parse_category_mapping, select_cherry_picked_terms, resolve_categories_from_ontology), Unit 4 (select_unbiased_terms), Unit 5 (render_dot_plot), Unit 6 (run_fisher_analysis), Unit 7 (run_semantic_clustering, download_or_load_obo), Unit 8 (render_bar_plot), Unit 9 (generate_notes), Unit 11 (render_go_tree).
+
+---
+
+## Unit 11 -- GO Tree Rendering
+
+### Tier 1 -- Description
+
+This unit renders a GO-term hierarchy figure that pairs with each of the cherry-picked (Figure 1) and unbiased (Figure 2) dot plots. The tree's leaves are the GO terms displayed in the corresponding dot plot; its internal nodes are the union of `is_a` ancestors of those leaves, walked recursively up to the namespace root. Terms are partitioned by GO namespace (biological_process / molecular_function / cellular_component) into vertically stacked panels. The unit reuses the OBO parser and ancestor-walk helpers from Unit 7 and produces no new statistical encodings — the figure is purely structural.
+
+### Tier 2 -- Signatures
+
+```python
+from pathlib import Path
+from dataclasses import dataclass
+
+from gsea_tool.data_ingestion import CohortData
+from gsea_tool.cherry_picked import CategoryGroup
+
+
+@dataclass
+class GoTreeResult:
+    pdf_path: Path
+    png_path: Path
+    svg_path: Path
+    n_leaf_terms: int
+    n_internal_nodes: int
+    n_namespaces: int
+    ...
+
+
+def build_go_tree(
+    groups: list[CategoryGroup],
+    cohort: CohortData,
+    obo_path: Path,
+) -> tuple[
+    dict[str, set[str]],   # parent_to_children
+    dict[str, str],        # go_id -> term name
+    dict[str, str],        # go_id -> namespace
+    set[str],              # leaf_go_ids
+]:
+    """Walk is_a ancestors from each plotted GO term to namespace roots."""
+    ...
+
+
+def render_go_tree(
+    groups: list[CategoryGroup],
+    cohort: CohortData,
+    obo_path: Path,
+    output_stem: str,
+    output_dir: Path,
+    title: str = "",
+    dpi: int = 300,
+    font_family: str = "Arial",
+) -> GoTreeResult:
+    """Render a GO-term hierarchy figure to PDF, PNG, and SVG."""
+    ...
+
+
+# --- Invariants ---
+assert len(groups) > 0, "At least one category group is required"
+assert all(len(g.term_names) > 0 for g in groups), "No empty groups passed"
+assert obo_path.exists(), "OBO file must exist"
+assert output_dir.is_dir(), "Output directory must exist"
+
+# Post-conditions
+assert result.pdf_path.exists()
+assert result.png_path.exists()
+assert result.svg_path.exists()
+assert result.n_leaf_terms >= 0
+assert result.n_namespaces >= 1
+```
+
+### Tier 3 -- Behavioral Contracts
+
+**Error conditions:**
+
+| Exception | Description | Trigger |
+|---|---|---|
+| `ValueError` | Empty groups list | `groups` is empty |
+| `OSError` | OBO file missing | `obo_path` does not exist |
+| `OSError` | Output write failure | Cannot write PDF/PNG/SVG to `output_dir` |
+
+**Behavioral contracts:**
+
+1. The tree's leaves are exactly the GO IDs of the unique GO terms named across all `groups`, after lookup from `cohort.profiles`. Term names that do not resolve to a GO ID present in the OBO are silently dropped.
+2. Internal nodes are the union of `is_a` ancestors of every leaf, walked recursively up to namespace roots. `part_of` relationships are not represented.
+3. Nodes are partitioned by GO namespace; one panel per namespace is rendered, vertically stacked. Namespaces with no nodes are not allocated a panel.
+4. Within each panel, depth equals the longest `is_a` distance from a node to any namespace root. Roots (depth 0) appear at the top of the panel; leaves appear at greatest depth.
+5. Within a row, x-positions are assigned via a single-pass barycenter on parent x-values, with adjacent-x collision spacing of 1.0 to keep nodes visually separated.
+6. Edges are drawn as right-angle elbow connectors (vertical drop, horizontal jog, vertical drop). Leaves are rendered with bold text; internal nodes with regular text.
+7. The figure has no NES/FDR encoding. It encodes only structural relationships from the GO ontology.
+8. Output files are written to `{output_stem}.pdf`, `{output_stem}.png`, and `{output_stem}.svg` in `output_dir` at the configured DPI.
+9. `n_leaf_terms`, `n_internal_nodes`, and `n_namespaces` in the returned `GoTreeResult` count the rendered nodes and panels exactly.
+
+**Dependencies:** Unit 1 (`CohortData`), Unit 3 (`CategoryGroup` type), Unit 7 (`_parse_obo`, `_get_ancestors`, `download_or_load_obo`).
 
 ---
 
@@ -1339,8 +1419,9 @@ Unit 5:  Dot Plot Rendering          -> Unit 1, Unit 3 (CategoryGroup type only)
 Unit 6:  Meta-Analysis Computation   -> Unit 1, Unit 2
 Unit 7:  GO Semantic Clustering      -> Unit 2, Unit 6
 Unit 8:  Bar Plot Rendering          -> Unit 2, Unit 6, Unit 7
-Unit 9:  Notes Generation            -> Unit 1, Unit 2, Unit 4, Unit 5, Unit 6, Unit 7, Unit 8
-Unit 10: Orchestration               -> Unit 1, Unit 2, Unit 3, Unit 4, Unit 5, Unit 6, Unit 7, Unit 8, Unit 9
+Unit 9:  Notes Generation            -> Unit 1, Unit 2, Unit 4, Unit 5, Unit 6, Unit 7, Unit 8, Unit 11
+Unit 10: Orchestration               -> Unit 1, Unit 2, Unit 3, Unit 4, Unit 5, Unit 6, Unit 7, Unit 8, Unit 9, Unit 11
+Unit 11: GO Tree Rendering           -> Unit 1, Unit 3 (CategoryGroup type only), Unit 7 (OBO helpers)
 ```
 
 All dependencies point backward. No circular dependencies exist.

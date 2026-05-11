@@ -92,7 +92,9 @@ Depending on invocation:
 | Figure | Produced when | Description |
 |---|---|---|
 | Figure 1 (hypothesis-driven dot plot) | Category mapping file is provided | Curated GO terms in user-defined categories |
+| Figure 1B (cherry-picked GO hierarchy) | Whenever Figure 1 is produced | Top-down GO `is_a` hierarchy of the cherry-picked terms shown in Figure 1, with one panel per GO namespace |
 | Figure 2 (unbiased dot plot) | Always | Data-driven GO term selection with unsupervised clustering |
+| Figure 2B (unbiased GO hierarchy) | Always | Top-down GO `is_a` hierarchy of the unbiased-selected terms shown in Figure 2, with one panel per GO namespace |
 | Figure 3 (meta-analysis bar plot) | Always | Fisher's combined probability bar plot with GO semantic clustering |
 
 ### 4.2 Output Formats
@@ -108,7 +110,7 @@ All figures are produced in three formats:
 The following intermediate TSV files are always produced in the `output/` directory:
 
 - `fisher_combined_pvalues.tsv` -- Full table of GO terms with combined Fisher p-values, number of contributing mutant lines, and cluster assignments (if clustering is enabled).
-- `pvalue_matrix.tsv` -- The raw GO term by mutant line nominal p-value matrix before combination, with interleaved NES (Normalized Enrichment Score) columns for each mutant. Missing p-value entries are filled with the imputed value of 1.0; missing NES entries are left blank.
+- `pvalue_matrix.tsv` -- The raw GO term by mutant line nominal p-value matrix before combination. Missing entries are filled with the imputed value of 1.0.
 
 ### 4.4 Notes File (notes.md)
 
@@ -176,6 +178,33 @@ This figure is always produced. It displays GO terms selected automatically from
 
 This figure requires no user-provided mapping file.
 
+### 5.4 Figures 1B and 2B -- GO Hierarchy Trees
+
+For each dot-plot figure (Figure 1 cherry-picked, Figure 2 unbiased), an
+accompanying GO-hierarchy figure is rendered. The hierarchy figures expose
+the structural context that the flat dot plots omit.
+
+- **Leaves:** the GO terms displayed in the corresponding dot plot, rendered
+  in bold.
+- **Internal nodes:** the union of `is_a` ancestors of those leaves, walked
+  recursively up to the namespace root, rendered in regular weight.
+- **Layout:** top-down hierarchical, with depth equal to the longest `is_a`
+  path to a root and within-row x-positions assigned by parent-mean
+  barycenter. Edges drawn as right-angle elbow connectors.
+- **Namespace splitting:** terms are partitioned by GO namespace
+  (biological_process / molecular_function / cellular_component); each
+  populated namespace becomes its own panel, stacked vertically.
+- **Hierarchy source:** the same OBO file used by Unit 7's clustering and
+  by the ontology-based cherry-pick path. Only `is_a` is used; `part_of`
+  is not represented.
+- **Statistical encoding:** none. Nodes carry no NES or FDR information;
+  the figure is purely structural.
+- **Conditional production:** Figure 1B is produced whenever Figure 1 is
+  produced; Figure 2B is always produced.
+- **Output filenames:** `figure1B_cherry_picked_tree.{pdf,png,svg}` and
+  `figure2B_unbiased_tree.{pdf,png,svg}`, written alongside the dot plots
+  in the `output/` directory.
+
 ---
 
 ## 6. Meta-Analysis Bar Plot (Figure 3)
@@ -220,8 +249,8 @@ For each GO term (row of the matrix):
 
 1. Pre-filter: retain only GO terms with combined p-value below a configurable threshold (default: 0.05).
 2. Compute pairwise semantic similarity between all pre-filtered GO terms using **Lin similarity** via the `goatools` library.
-3. Information content is computed from the *Drosophila melanogaster* Gene Annotation File (GAF), which the tool auto-downloads from a standard source (GO Consortium or FlyBase). The download URL is configurable in `config.yaml`. HTTP requests must include a browser-like User-Agent header because the Gene Ontology server rejects Python's default user-agent.
-4. The GO OBO file (ontology graph) is also auto-downloaded. The download URL is configurable in `config.yaml`. The same User-Agent requirement applies.
+3. Information content is computed from the *Drosophila melanogaster* Gene Annotation File (GAF), which the tool auto-downloads from a standard source (GO Consortium or FlyBase). The download URL is configurable in `config.yaml`.
+4. The GO OBO file (ontology graph) is also auto-downloaded. The download URL is configurable in `config.yaml`.
 5. **Clustering method**: Hierarchical agglomerative clustering on the similarity matrix, cut at a configurable similarity threshold (default: 0.7).
 6. **Representative selection**: Within each cluster, select the GO term with the lowest combined Fisher p-value as the representative.
 7. Store the cluster assignments and representative terms.
@@ -345,6 +374,43 @@ The visual target for Figures 1 and 2 is **Figure 3a of Gordon et al. 2024**. Ke
 ## 10. License
 
 MIT License. The project is released under the MIT license, permitting unrestricted use, modification, and distribution with minimal restrictions.
+
+---
+
+## 11. Bug Log
+
+Post-delivery defects discovered after pipeline completion. Each entry references the regression test that locks the fix in.
+
+### BUG-001 — Data-relative dot-size scale collapsed mid-size legend dot (mirrors wgcna BUG-015)
+
+**Symptom.** When the data contained any GO term with `FDR == 0` for any mutant (clamped to `1e-300` by `build_dot_grid`, giving `-log10(FDR) = 300`), that value dominated the linear size scale. The "merely very-significant" dots (FDR ≤ 1e-30) and the "barely significant" dots (FDR ≈ 0.05) collapsed to nearly the same minimum size, leaving readers unable to distinguish the middle of the encoding.
+
+**Root cause.** `scale_size` in Unit 5 normalized to the per-figure data range `(min_sig, max_sig)`, which is unbounded above when FDR=0 values are present.
+
+**Fix.** Anchor the size scale to fixed legend reference values `LEGEND_FDR_EXAMPLES = (0.25, 0.05, 0.001)` and clamp normalized values to `[0, 1]`. The three reference FDR values now map to three distinct, evenly-separated dot sizes regardless of how saturated the data is.
+
+**Locked by.** `tests/regressions/test_dot_size_anchored.py`.
+
+### BUG-002 — Legend area-to-diameter conversion was wrong (mirrors wgcna BUG-013)
+
+**Symptom.** Legend reference dots rendered at ~88% of the diameter of the corresponding scatter dots they were meant to represent. The legend visually under-stated the scatter dot sizes.
+
+**Root cause.** Legend used `markersize=math.sqrt(s)`. `Line2D.markersize` is a diameter in points; scatter `s` is an area in points². The correct conversion from area `A` to diameter is `2·√(A/π)`, not `√A`.
+
+**Fix.** Replaced `markersize=math.sqrt(s)` with `markersize=2.0 * math.sqrt(s / math.pi)` in the dot-size legend construction, and bumped `min_dot_size`/`max_dot_size` from 20/200 to 50/500 for publication-readable diameters (~8 pt and ~25 pt).
+
+**Locked by.** `tests/regressions/test_legend_diameter_conversion.py`.
+
+### BUG-003 — Legend marker overlap with bumped sizes (mirrors wgcna BUG-018)
+
+**Symptom.** After BUG-002's fix bumped `max_dot_size` to 500, the largest legend marker (~25 pt diameter) exceeded matplotlib's default per-entry vertical room (~5–6 pt at `fontsize=7`), causing legend dots to physically overlap.
+
+**Root cause.** `ax.legend(...)` used the matplotlib defaults `handleheight=0.7` and `labelspacing=0.5` (in font-size units), which were not scaled to the configured marker size.
+
+**Fix.** Compute `handleheight` and `labelspacing` from `_max_diam_pts = 2·√(max_dot_size/π)` and `_font_size_pts`, with floors at the matplotlib defaults so smaller markers behave unchanged.
+
+**Locked by.** `tests/regressions/test_legend_spacing.py`.
+
 
 ---
 
