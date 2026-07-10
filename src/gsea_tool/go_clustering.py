@@ -4,7 +4,9 @@ from pathlib import Path
 from dataclasses import dataclass
 from collections import defaultdict
 import gzip
+import http.client
 import math
+import os
 import urllib.request
 import urllib.error
 
@@ -30,68 +32,236 @@ class ClusteringResult:
     similarity_threshold: float
 
 
-def _download_file(url: str, dest: Path) -> None:
-    """Download a file from url to dest, sending a browser-like User-Agent.
+class CorruptDownloadError(Exception):
+    """Raised when a downloaded or cached ontology/annotation file is unusable.
+
+    Signals an empty file, a truncated transfer, or a payload that does not
+    look like the expected format (e.g. an HTML error page served with 200).
+    """
+
+
+# Only the head of a file is inspected during validation: enough to identify
+# the format, cheap enough to run on every cache hit (the OBO is ~150 MB).
+_VALIDATION_READ_BYTES = 65536
+
+# Streaming chunk size for downloads.
+_DOWNLOAD_CHUNK_BYTES = 65536
+
+# Retry-worthy transfer failures. http.client.HTTPException is included
+# because IncompleteRead (a truncated response body) subclasses it rather
+# than URLError or OSError, and would otherwise escape the retry loop.
+_TRANSIENT_DOWNLOAD_ERRORS = (
+    urllib.error.URLError,
+    OSError,
+    http.client.HTTPException,
+    CorruptDownloadError,
+)
+
+
+def _validate_download(path: Path, kind: str, gzipped: "bool | None" = None) -> None:
+    """Validate a freshly downloaded OBO/GAF file, raising CorruptDownloadError.
+
+    Applied to the temporary file before it is promoted into the cache, so a
+    malformed payload never becomes a cache entry.
+
+    `gzipped` must be supplied when validating a temporary file, whose name
+    ends in ".part" and therefore cannot be sniffed for a ".gz" suffix; it
+    defaults to inspecting `path` itself.
+    """
+    if gzipped is None:
+        gzipped = path.name.endswith(".gz")
+
+    if not path.exists() or path.stat().st_size == 0:
+        raise CorruptDownloadError(f"Downloaded {kind} file is empty: {path}")
+
+    with open(path, "rb") as fh:
+        head = fh.read(_VALIDATION_READ_BYTES)
+
+    if kind == "obo":
+        text = head.decode("utf-8", errors="replace")
+        if "format-version:" not in text and "[Term]" not in text:
+            raise CorruptDownloadError(
+                f"Downloaded file does not look like a GO OBO file: {path}"
+            )
+    elif kind == "gaf":
+        if gzipped:
+            if not head.startswith(b"\x1f\x8b"):
+                raise CorruptDownloadError(
+                    f"Downloaded file is not gzip-compressed as expected: {path}"
+                )
+        else:
+            text = head.decode("utf-8", errors="replace")
+            if not any(
+                line.startswith("!") or "\t" in line for line in text.splitlines()
+            ):
+                raise CorruptDownloadError(
+                    f"Downloaded file does not look like a GAF file: {path}"
+                )
+
+
+def _cached_file_is_usable(path: Path) -> bool:
+    """Report whether an existing cache entry may be returned without re-downloading.
+
+    Deliberately weaker than _validate_download: a cache entry written by an
+    earlier version of this module (or by a user placing a file by hand) is
+    trusted on content, but never when it is empty. A zero-byte entry is the
+    signature of an interrupted download under the pre-atomic implementation.
+    """
+    try:
+        return path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _download_file(url: str, dest: Path, kind: str = "obo") -> None:
+    """Atomically download a file from url to dest, with a browser-like User-Agent.
 
     The Gene Ontology server rejects requests with the default Python
     user-agent, so we set a standard browser User-Agent header.
+
+    The body is streamed to a sibling ``.part`` file, validated, and only then
+    moved into place with os.replace(). Consequently `dest` either does not
+    exist or is a complete, well-formed file -- an interrupted transfer can
+    never leave a truncated or empty entry behind for a later run to consume.
     """
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "Mozilla/5.0 (compatible; GSEA-Tool/2.1)"},
     )
-    with urllib.request.urlopen(req) as response, open(dest, "wb") as out:
-        out.write(response.read())
+    # NOTE: with_name, not with_suffix -- with_suffix would turn
+    # "fb.gaf.gz" into "fb.gaf.part", clobbering the .gz extension that
+    # _parse_gaf and _validate_download both key off.
+    tmp = dest.with_name(dest.name + ".part")
+    gzipped = dest.name.endswith(".gz")
+    try:
+        # Stream in chunks: response.read() would buffer the entire ~150 MB
+        # OBO in memory. Chunked reads have a sharp edge, though -- unlike
+        # response.read(), response.read(n) does NOT raise IncompleteRead when
+        # the peer hangs up early; it simply returns b"" as though the body had
+        # ended. A truncated transfer is therefore indistinguishable from a
+        # complete one unless we check the length ourselves.
+        with urllib.request.urlopen(req) as response, open(tmp, "wb") as out:
+            declared = response.headers.get("Content-Length")
+            written = 0
+            while True:
+                chunk = response.read(_DOWNLOAD_CHUNK_BYTES)
+                if not chunk:
+                    break
+                out.write(chunk)
+                written += len(chunk)
+
+        if declared is not None:
+            try:
+                expected = int(declared)
+            except ValueError:
+                expected = None  # malformed header; fall back to format sniff
+            if expected is not None and written != expected:
+                raise CorruptDownloadError(
+                    f"Truncated download from {url}: received {written} bytes, "
+                    f"expected {expected}"
+                )
+
+        _validate_download(tmp, kind, gzipped=gzipped)
+        os.replace(tmp, dest)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
-def download_or_load_obo(obo_url: str, cache_dir: Path) -> Path:
+def _resolve_local_override(local_path: "str | Path", kind: str, config_key: str) -> Path:
+    """Return a validated user-supplied local ontology/annotation file.
+
+    Never touches the network. A bad override is reported immediately rather
+    than silently falling back to a download the user asked us not to make.
+    """
+    path = Path(local_path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Configured {config_key} does not exist: {path}"
+        )
+    _validate_download(path, kind)
+    return path
+
+
+def download_or_load_obo(
+    obo_url: str,
+    cache_dir: Path,
+    local_path: "str | Path | None" = None,
+) -> Path:
     """Download the GO OBO file if not cached, or return cached path.
+
+    If `local_path` is set (from clustering.go_obo_path), that file is used
+    directly and no network access occurs -- the supported offline workflow.
+
+    A cache entry is reused only if it is non-empty; an empty entry left by an
+    interrupted download under an older version is discarded and re-fetched.
 
     Returns path to the local OBO file.
     """
+    if local_path:
+        return _resolve_local_override(local_path, "obo", "clustering.go_obo_path")
+
     cache_dir.mkdir(parents=True, exist_ok=True)
     # Derive filename from URL
     filename = obo_url.rsplit("/", 1)[-1]
     cached_path = cache_dir / filename
 
     if cached_path.exists():
-        return cached_path
+        if _cached_file_is_usable(cached_path):
+            return cached_path
+        # Poisoned cache entry (zero bytes): drop it and re-download.
+        cached_path.unlink()
 
     # Try downloading with one retry
     for attempt in range(2):
         try:
-            _download_file(obo_url, cached_path)
+            _download_file(obo_url, cached_path, kind="obo")
             return cached_path
-        except (urllib.error.URLError, OSError):
+        except _TRANSIENT_DOWNLOAD_ERRORS:
             if attempt == 1:
                 raise ConnectionError(
-                    f"Failed to download GO OBO file from {obo_url} after retry"
+                    f"Failed to download GO OBO file from {obo_url} after retry. "
+                    f"To run offline, set clustering.go_obo_path in config.yaml to a "
+                    f"local copy of the OBO file."
                 )
 
     # Should not reach here, but just in case
     raise ConnectionError(f"Failed to download GO OBO file from {obo_url} after retry")
 
 
-def download_or_load_gaf(gaf_url: str, cache_dir: Path) -> Path:
+def download_or_load_gaf(
+    gaf_url: str,
+    cache_dir: Path,
+    local_path: "str | Path | None" = None,
+) -> Path:
     """Download the Drosophila GAF file if not cached, or return cached path.
+
+    If `local_path` is set (from clustering.gaf_path), that file is used
+    directly and no network access occurs.
 
     Returns path to the local GAF file.
     """
+    if local_path:
+        return _resolve_local_override(local_path, "gaf", "clustering.gaf_path")
+
     cache_dir.mkdir(parents=True, exist_ok=True)
     filename = gaf_url.rsplit("/", 1)[-1]
     cached_path = cache_dir / filename
 
     if cached_path.exists():
-        return cached_path
+        if _cached_file_is_usable(cached_path):
+            return cached_path
+        cached_path.unlink()
 
     for attempt in range(2):
         try:
-            _download_file(gaf_url, cached_path)
+            _download_file(gaf_url, cached_path, kind="gaf")
             return cached_path
-        except (urllib.error.URLError, OSError):
+        except _TRANSIENT_DOWNLOAD_ERRORS:
             if attempt == 1:
                 raise ConnectionError(
-                    f"Failed to download Drosophila GAF file from {gaf_url} after retry"
+                    f"Failed to download Drosophila GAF file from {gaf_url} after retry. "
+                    f"To run offline, set clustering.gaf_path in config.yaml to a "
+                    f"local copy of the GAF file."
                 )
 
     raise ConnectionError(f"Failed to download Drosophila GAF file from {gaf_url} after retry")
@@ -432,9 +602,14 @@ def run_semantic_clustering(
             f"({prefilter_threshold})"
         )
 
-    # Step 2: Download/load OBO and GAF
-    obo_path = download_or_load_obo(config.go_obo_url, cache_dir)
-    gaf_path = download_or_load_gaf(config.gaf_url, cache_dir)
+    # Step 2: Download/load OBO and GAF. The local_path overrides make the
+    # whole clustering path runnable offline (see clustering.go_obo_path).
+    obo_path = download_or_load_obo(
+        config.go_obo_url, cache_dir, local_path=config.go_obo_path
+    )
+    gaf_path = download_or_load_gaf(
+        config.gaf_url, cache_dir, local_path=config.gaf_path
+    )
 
     # Step 3: Compute information content
     ic_values = compute_information_content(obo_path, gaf_path)

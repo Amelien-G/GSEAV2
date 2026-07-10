@@ -34,6 +34,13 @@ clustering:
   similarity_threshold: 0.7                                              # Threshold for clustering
   go_obo_url: "https://current.geneontology.org/ontology/go-basic.obo"  # GO ontology OBO file URL
   # gaf_url: ""                                                          # GAF annotation file URL (defaults to Drosophila)
+  # go_obo_path: ""                                                      # Local OBO file. When set, no network access (offline mode)
+  # gaf_path: ""                                                         # Local GAF file. When set, no network access (offline mode)
+
+# GO-hierarchy figures (Figure 1B / Figure 2B)
+go_tree:
+  label_max_chars: 28         # Node-label wrap width, in characters
+  show_namespace_root: true   # Draw the namespace root; false promotes its children to roots
 
 # Plot appearance (all figures)
 plot:

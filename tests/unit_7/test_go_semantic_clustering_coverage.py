@@ -139,7 +139,7 @@ class TestDownloadRetryBehavior:
         cache_dir.mkdir(parents=True, exist_ok=True)
         target_path = cache_dir / "go-basic.obo"
 
-        def side_effect_succeed_on_retry(url, path):
+        def side_effect_succeed_on_retry(url, path, kind="obo"):
             if not hasattr(side_effect_succeed_on_retry, "_called"):
                 side_effect_succeed_on_retry._called = True
                 raise urllib.error.URLError("first attempt fails")
@@ -160,7 +160,7 @@ class TestDownloadRetryBehavior:
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        def side_effect_succeed_on_retry(url, path):
+        def side_effect_succeed_on_retry(url, path, kind="obo"):
             if not hasattr(side_effect_succeed_on_retry, "_called"):
                 side_effect_succeed_on_retry._called = True
                 raise urllib.error.URLError("first attempt fails")

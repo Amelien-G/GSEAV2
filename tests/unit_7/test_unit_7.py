@@ -282,7 +282,7 @@ class TestDownloadOrLoadObo:
         cache_dir = tmp_path / "cache"
 
         with patch("gsea_tool.go_clustering._download_file") as mock_retrieve:
-            def fake_retrieve(url, dest):
+            def fake_retrieve(url, dest, kind="obo"):
                 Path(dest).write_text("downloaded obo", encoding="utf-8")
             mock_retrieve.side_effect = fake_retrieve
 
@@ -321,7 +321,7 @@ class TestDownloadOrLoadObo:
         import urllib.error
         call_count = 0
 
-        def failing_retrieve(url, dest):
+        def failing_retrieve(url, dest, kind="obo"):
             nonlocal call_count
             call_count += 1
             raise urllib.error.URLError("network error")
@@ -340,7 +340,7 @@ class TestDownloadOrLoadObo:
         import urllib.error
         attempt = [0]
 
-        def flaky_retrieve(url, dest):
+        def flaky_retrieve(url, dest, kind="obo"):
             attempt[0] += 1
             if attempt[0] == 1:
                 raise urllib.error.URLError("transient error")

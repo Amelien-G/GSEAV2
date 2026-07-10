@@ -293,7 +293,7 @@ The tool writes the following files to `output/`:
 | `figure2_unbiased.{pdf,png,svg}` | Unbiased selection dot plot |
 | `figure2B_unbiased_tree.{pdf,png,svg}` | GO-term hierarchy of unbiased-selected terms (always) |
 | `figure3_meta_analysis.{pdf,png,svg}` | Meta-analysis bar plot |
-| `pvalue_matrix.tsv` | GO term x mutant nominal p-value matrix |
+| `pvalue_matrix.tsv` | GO term x mutant nominal p-value matrix. Column 2 is `Term_Name` (renamed from `GO_Term`; see Breaking changes) |
 | `fisher_combined_pvalues.tsv` | Fisher combined p-values with cluster assignments |
 | `notes.md` | Figure legends, methods text, and reproducibility notes |
 
@@ -349,11 +349,41 @@ The tool requires Python 3.11. Run `python --version` to check. If incorrect, en
 **config.yaml type errors:**
 All config values must be the correct type. Write `fdr_threshold: 0.05` (number), not `fdr_threshold: "0.05"` (string). Boolean values must be `true` or `false` (lowercase, no quotes).
 
-## 12. Reference
+**Running without internet access:**
+The tool downloads the GO OBO file (and, when clustering is enabled, a GAF annotation file) on first use and caches it under `cache/`. To run fully offline, download the files once and point the config at them:
+
+```yaml
+clustering:
+  go_obo_path: "/path/to/go-basic.obo"
+  gaf_path: "/path/to/fb.gaf.gz"
+```
+
+When either path is set, that file is used directly and no network request is made. A missing or malformed local file is reported immediately rather than silently falling back to a download.
+
+**A previously interrupted download:**
+Downloads are atomic: the file is written to a temporary `.part` file and moved into place only once complete and validated, so an interrupted transfer cannot leave a corrupt entry in `cache/`. Versions before this fix could leave a zero-byte file there that was then reused forever, producing empty GO-hierarchy figures with no error. Such an entry is now detected and re-downloaded automatically; you may also simply delete `cache/` to force a refresh.
+
+## 12. Breaking changes
+
+**`pvalue_matrix.tsv` column 2 renamed `GO_Term` -> `Term_Name`.**
+The column holds a human-readable GO term *name*, not a GO term ID, and the two other TSV writers (`fisher_combined_pvalues.tsv`, in both its plain and clustered forms) already called it `Term_Name`. The three output files now agree.
+
+If you have a downstream script that selects this column *by name* from `pvalue_matrix.tsv`, update it:
+
+```python
+# before
+name = row["GO_Term"]
+# after
+name = row["Term_Name"]
+```
+
+Scripts that index by position (column 2) are unaffected.
+
+## 13. Reference
 
 Figure format modeled on: Gordon et al. 2024, Figure 3a.
 
-## 13. License
+## 14. License
 
 This software is distributed under the MIT License.
 

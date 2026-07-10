@@ -427,7 +427,9 @@ class TestWritePvalueMatrixTsv:
         content = (tmp_path / "pvalue_matrix.tsv").read_text()
         header = content.splitlines()[0]
         assert "GO_ID" in header
-        assert "Term_Name" in header or "GO_Term" in header
+        # BUG-007: exact check. The old `or "GO_Term"` accepted both
+        # spellings, which is why the header drift went unnoticed.
+        assert "Term_Name" in header
 
     def test_pvalue_matrix_tsv_row_count(self, simple_cohort, default_config, tmp_path):
         """Contract 9: One row per GO term plus header."""
@@ -479,7 +481,9 @@ class TestWriteFisherResultsTsv:
         content = (tmp_path / "fisher_combined_pvalues.tsv").read_text()
         header = content.splitlines()[0]
         assert "GO_ID" in header
-        assert "Term_Name" in header or "GO_Term" in header
+        # BUG-007: exact check. The old `or "GO_Term"` accepted both
+        # spellings, which is why the header drift went unnoticed.
+        assert "Term_Name" in header
         assert "Combined_pvalue" in header or "combined_pvalue" in header.lower()
         assert "N_contributing" in header or "contributing" in header.lower()
 

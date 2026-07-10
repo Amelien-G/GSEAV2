@@ -126,7 +126,11 @@ def _run() -> None:
     # Always resolve the OBO file: it is needed for the GO-hierarchy figures
     # (Figure 1B / Figure 2B), in addition to the optional ontology cherry-pick
     # path and the optional Unit 7 clustering path.
-    obo_path = download_or_load_obo(config.clustering.go_obo_url, cache_dir)
+    obo_path = download_or_load_obo(
+        config.clustering.go_obo_url,
+        cache_dir,
+        local_path=config.clustering.go_obo_path,
+    )
 
     if has_config_categories:
         fig1_groups = resolve_categories_from_ontology(
@@ -163,6 +167,8 @@ def _run() -> None:
             dpi=config.plot_appearance.dpi,
             font_family=config.plot_appearance.font_family,
             title="Figure 1B: Cherry-Picked GO Term Hierarchy",
+            label_max_chars=config.go_tree.label_max_chars,
+            show_namespace_root=config.go_tree.show_namespace_root,
         )
 
     # Step 4: Select unbiased terms (Unit 4) for Figure 2
@@ -194,6 +200,8 @@ def _run() -> None:
         dpi=config.plot_appearance.dpi,
         font_family=config.plot_appearance.font_family,
         title="Figure 2B: Unbiased Top GO Term Hierarchy",
+        label_max_chars=config.go_tree.label_max_chars,
+        show_namespace_root=config.go_tree.show_namespace_root,
     )
 
     # Step 6: Run Fisher analysis (Unit 6)

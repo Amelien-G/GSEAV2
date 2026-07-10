@@ -1790,10 +1790,10 @@ class TestEndToEnd:
 
         # Parse header. Per `feat: add NES columns to pvalue_matrix.tsv`
         # (commit d0c6031), the matrix now interleaves `_pval` and `_NES`
-        # columns per mutant after the GO_Term column.
+        # columns per mutant after the Term_Name column.
         header = lines[0].split("\t")
         assert header[0] == "GO_ID"
-        assert header[1] == "GO_Term"
+        assert header[1] == "Term_Name"  # BUG-007
         expected_cols = []
         for mid in cohort.mutant_ids:
             expected_cols.append(f"{mid}_pval")

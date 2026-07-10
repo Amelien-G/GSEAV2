@@ -231,12 +231,16 @@ class TestFunctionSignatures:
     def test_download_or_load_obo_signature(self):
         sig = inspect.signature(download_or_load_obo)
         params = list(sig.parameters.keys())
-        assert params == ["obo_url", "cache_dir"]
+        # local_path (BUG-006 / offline support) is optional and defaults to
+        # None, so the two-positional-argument call form still holds.
+        assert params == ["obo_url", "cache_dir", "local_path"]
+        assert sig.parameters["local_path"].default is None
 
     def test_download_or_load_gaf_signature(self):
         sig = inspect.signature(download_or_load_gaf)
         params = list(sig.parameters.keys())
-        assert params == ["gaf_url", "cache_dir"]
+        assert params == ["gaf_url", "cache_dir", "local_path"]
+        assert sig.parameters["local_path"].default is None
 
     def test_compute_information_content_signature(self):
         sig = inspect.signature(compute_information_content)
@@ -279,9 +283,7 @@ class TestDownloadOrLoadObo:
 
     def test_returns_path(self, tmp_path):
         """download_or_load_obo must return a Path object."""
-        # We cannot test this without an actual implementation that works,
-        # but we verify the function is callable and returns a Path.
-        # This test will fail against the stub (NotImplementedError).
+        # A cached file is pre-created so no network call is made.
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         # Create a fake cached OBO file to avoid network call

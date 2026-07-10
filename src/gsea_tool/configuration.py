@@ -1,7 +1,7 @@
 """Unit 2 -- Configuration loading and validation."""
 
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import re
 import yaml
 
@@ -45,6 +45,10 @@ class ClusteringConfig:
     similarity_threshold: float = 0.7
     go_obo_url: str = "https://current.geneontology.org/ontology/go-basic.obo"
     gaf_url: str = ""
+    # Optional local file overrides. When set, the file is used directly and
+    # no network access occurs -- the supported offline workflow (BUG-006).
+    go_obo_path: str = ""
+    gaf_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,20 @@ class PlotAppearanceConfig:
 
 
 @dataclass(frozen=True)
+class GoTreeConfig:
+    """Configuration for the GO-hierarchy figures (Figure 1B / Figure 2B).
+
+    Defaults reproduce the hard-coded rendering behaviour that preceded this
+    config section, so an existing config.yaml renders byte-identical figures.
+    """
+    # Wrap width for node labels, in characters (was Unit 11 _LABEL_WRAP_WIDTH).
+    label_max_chars: int = 28
+    # Render the namespace root node (e.g. "biological_process") as a node.
+    # When False, its children become the roots of the drawn tree.
+    show_namespace_root: bool = True
+
+
+@dataclass(frozen=True)
 class ToolConfig:
     """Complete tool configuration assembled from config.yaml or defaults."""
     cherry_pick_categories: list = field(default_factory=list)
@@ -68,6 +86,7 @@ class ToolConfig:
     fisher: FisherConfig = field(default_factory=FisherConfig)
     clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
     plot_appearance: PlotAppearanceConfig = field(default_factory=PlotAppearanceConfig)
+    go_tree: GoTreeConfig = field(default_factory=GoTreeConfig)
 
 
 class ConfigError(Exception):
@@ -178,6 +197,8 @@ def validate_config(raw: dict) -> ToolConfig:
     _extract_field(cl_raw, cl_kwargs, "similarity_threshold", float, cl_defaults.similarity_threshold)
     _extract_field(cl_raw, cl_kwargs, "go_obo_url", str, cl_defaults.go_obo_url)
     _extract_field(cl_raw, cl_kwargs, "gaf_url", str, cl_defaults.gaf_url)
+    _extract_field(cl_raw, cl_kwargs, "go_obo_path", str, cl_defaults.go_obo_path)
+    _extract_field(cl_raw, cl_kwargs, "gaf_path", str, cl_defaults.gaf_path)
     clustering = ClusteringConfig(**cl_kwargs)
 
     # --- plot appearance ---
@@ -196,12 +217,23 @@ def validate_config(raw: dict) -> ToolConfig:
     _extract_field(pa_raw, pa_kwargs, "show_recurrence_annotation", bool, pa_defaults.show_recurrence_annotation)
     plot_appearance = PlotAppearanceConfig(**pa_kwargs)
 
+    # --- go_tree ---
+    gt_defaults = GoTreeConfig()
+    gt_raw = raw.get("go_tree", {})
+    if not isinstance(gt_raw, dict):
+        raise ConfigError("go_tree must be a mapping")
+    gt_kwargs = {}
+    _extract_field(gt_raw, gt_kwargs, "label_max_chars", int, gt_defaults.label_max_chars)
+    _extract_field(gt_raw, gt_kwargs, "show_namespace_root", bool, gt_defaults.show_namespace_root)
+    go_tree = GoTreeConfig(**gt_kwargs)
+
     config = ToolConfig(
         cherry_pick_categories=list(cherry_picks),
         dot_plot=dot_plot,
         fisher=fisher,
         clustering=clustering,
         plot_appearance=plot_appearance,
+        go_tree=go_tree,
     )
 
     # Apply GAF URL default
@@ -214,23 +246,15 @@ def validate_config(raw: dict) -> ToolConfig:
 
 
 def _apply_gaf_default(config: ToolConfig) -> ToolConfig:
-    """Set the GAF URL to the default if it was not provided."""
+    """Set the GAF URL to the default if it was not provided.
+
+    Uses dataclasses.replace rather than re-listing every field: the previous
+    hand-written reconstruction silently dropped any newly added field that the
+    author forgot to copy across.
+    """
     if config.clustering.gaf_url == "":
-        # Need to create new frozen instances
-        new_clustering = ClusteringConfig(
-            enabled=config.clustering.enabled,
-            similarity_metric=config.clustering.similarity_metric,
-            similarity_threshold=config.clustering.similarity_threshold,
-            go_obo_url=config.clustering.go_obo_url,
-            gaf_url=_DEFAULT_GAF_URL,
-        )
-        config = ToolConfig(
-            cherry_pick_categories=config.cherry_pick_categories,
-            dot_plot=config.dot_plot,
-            fisher=config.fisher,
-            clustering=new_clustering,
-            plot_appearance=config.plot_appearance,
-        )
+        new_clustering = replace(config.clustering, gaf_url=_DEFAULT_GAF_URL)
+        config = replace(config, clustering=new_clustering)
     return config
 
 
@@ -271,6 +295,10 @@ def _validate_ranges(config: ToolConfig) -> None:
     if config.plot_appearance.label_max_length <= 0:
         raise ConfigError(
             f"plot.label_max_length must be positive, got {config.plot_appearance.label_max_length}"
+        )
+    if config.go_tree.label_max_chars <= 0:
+        raise ConfigError(
+            f"go_tree.label_max_chars must be positive, got {config.go_tree.label_max_chars}"
         )
     if not (0.0 < config.fisher.fdr_threshold <= 1.0):
         raise ConfigError(

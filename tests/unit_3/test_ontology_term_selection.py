@@ -30,15 +30,11 @@ from gsea_tool.data_ingestion import CohortData, MutantProfile, TermRecord
 from gsea_tool.configuration import CherryPickCategory
 from gsea_tool.cherry_picked import CategoryGroup
 
-# These functions are specified in the blueprint but may not yet be in the stub.
-# Import them and skip the entire module if they are not available yet.
-try:
-    from gsea_tool.cherry_picked import get_all_descendants, resolve_categories_from_ontology
-except ImportError:
-    pytest.skip(
-        "get_all_descendants and resolve_categories_from_ontology not yet in stub",
-        allow_module_level=True,
-    )
+# Both functions are implemented; a plain import keeps an ImportError loud.
+# The previous try/except pytest.skip guard was a build-order artefact that
+# would have silently skipped this entire module had either function gone
+# missing.
+from gsea_tool.cherry_picked import get_all_descendants, resolve_categories_from_ontology
 
 
 # ---------------------------------------------------------------------------

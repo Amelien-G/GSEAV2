@@ -62,7 +62,7 @@ class GoTreeResult:
     n_namespaces: int
 
 
-def _wrap_label(text: str) -> str:
+def _wrap_label(text: str, wrap_width: int = _LABEL_WRAP_WIDTH) -> str:
     """Wrap a GO term label onto at most _LABEL_MAX_LINES lines.
 
     BUG-004 (post-delivery): the previous implementation truncated labels
@@ -70,10 +70,13 @@ def _wrap_label(text: str) -> str:
     (especially biological_process) unreadable. We now wrap labels across
     lines instead. If wrapping still overflows _LABEL_MAX_LINES, the final
     line is ellipsised so the bbox stays bounded.
+
+    `wrap_width` defaults to _LABEL_WRAP_WIDTH and is overridable via
+    config go_tree.label_max_chars.
     """
     lines = textwrap.wrap(
         text,
-        width=_LABEL_WRAP_WIDTH,
+        width=wrap_width,
         break_long_words=False,
         break_on_hyphens=True,
     ) or [text]
@@ -81,11 +84,36 @@ def _wrap_label(text: str) -> str:
         kept = lines[: _LABEL_MAX_LINES]
         last = kept[-1]
         # Trim last line so trailing "..." fits within wrap width.
-        if len(last) > _LABEL_WRAP_WIDTH - 3:
-            last = last[: _LABEL_WRAP_WIDTH - 3].rstrip()
+        if len(last) > wrap_width - 3:
+            last = last[: wrap_width - 3].rstrip()
         kept[-1] = last + "..."
         lines = kept
     return "\n".join(lines)
+
+
+def _drop_namespace_roots(
+    essential: set[str],
+    reduced_edges: dict[tuple[str, str], bool],
+    leaf_go_ids: set[str],
+) -> tuple[set[str], dict[tuple[str, str], bool]]:
+    """Remove namespace-root nodes, promoting their children to roots.
+
+    Supports config go_tree.show_namespace_root = false. A root that is itself
+    a plotted leaf is never dropped -- it carries data, not just structure.
+    """
+    children_of_edges = {child for (child, _parent) in reduced_edges}
+    roots = {n for n in essential if n not in children_of_edges}
+    droppable = {r for r in roots if r not in leaf_go_ids}
+    if not droppable:
+        return essential, reduced_edges
+
+    kept_nodes = essential - droppable
+    kept_edges = {
+        (child, parent): dashed
+        for (child, parent), dashed in reduced_edges.items()
+        if parent not in droppable and child not in droppable
+    }
+    return kept_nodes, kept_edges
 
 
 def _term_name_to_go_id(cohort: CohortData) -> dict[str, str]:
@@ -409,6 +437,7 @@ def _render_namespace_panel(
     reduced_edges: dict[tuple[str, str], bool],
     go_id_to_name: dict[str, str],
     namespace: str,
+    label_max_chars: int = _LABEL_WRAP_WIDTH,
 ) -> dict[str, tuple[float, float]]:
     """Draw one Steiner-reduced namespace panel (BUG-005).
 
@@ -453,7 +482,7 @@ def _render_namespace_panel(
         is_leaf = go_id in leaf_go_ids
         weight = _LEAF_FONT_WEIGHT if is_leaf else _INTERNAL_FONT_WEIGHT
         raw_label = go_id_to_name.get(go_id, go_id)
-        label = _wrap_label(raw_label)
+        label = _wrap_label(raw_label, wrap_width=label_max_chars)
         ax.text(
             x, y,
             label,
@@ -485,6 +514,8 @@ def render_go_tree(
     title: str = "",
     dpi: int = 300,
     font_family: str = "Arial",
+    label_max_chars: int = _LABEL_WRAP_WIDTH,
+    show_namespace_root: bool = True,
 ) -> GoTreeResult:
     """Render a GO-term hierarchy figure to PDF, PNG, and SVG.
 
@@ -503,6 +534,9 @@ def render_go_tree(
         title: optional figure-level title; namespace is appended in each file.
         dpi: PNG resolution.
         font_family: matplotlib font family for all text.
+        label_max_chars: label wrap width in characters (go_tree.label_max_chars).
+        show_namespace_root: draw the namespace root node; when False its
+            children become the roots (go_tree.show_namespace_root).
 
     Returns:
         GoTreeResult with per-namespace path dicts and summary counts.
@@ -547,6 +581,12 @@ def render_go_tree(
         reduced_edges = _compute_reduced_edges(
             parent_to_children, essential, ns_nodes
         )
+        if not show_namespace_root:
+            essential, reduced_edges = _drop_namespace_roots(
+                essential, reduced_edges, leaf_go_ids
+            )
+        # Counted after any root drop so the reported internal-node total
+        # matches what is actually drawn.
         n_internal_essential += sum(1 for v in essential if v not in leaf_go_ids)
 
         # Pre-layout on reduced graph so we can size the canvas.
@@ -567,6 +607,7 @@ def render_go_tree(
             reduced_edges,
             go_id_to_name,
             ns,
+            label_max_chars=label_max_chars,
         )
 
         if title:

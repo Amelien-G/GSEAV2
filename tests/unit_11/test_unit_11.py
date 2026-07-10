@@ -94,7 +94,10 @@ def test_render_go_tree_signature():
     assert set(sig.parameters) == {
         "groups", "cohort", "obo_path", "output_stem", "output_dir",
         "title", "dpi", "font_family",
+        # go_tree config knobs; both default to the previous hard-coded values.
+        "label_max_chars", "show_namespace_root",
     }
+    assert sig.parameters["show_namespace_root"].default is True
 
 
 # ---------------------------------------------------------------------------

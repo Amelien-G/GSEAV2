@@ -264,14 +264,21 @@ def write_pvalue_matrix_tsv(
 ) -> Path:
     """Write the p-value matrix with NES values to pvalue_matrix.tsv.
 
-    Each row contains: GO_ID, GO_Term, then for each mutant a pvalue column
+    Each row contains: GO_ID, Term_Name, then for each mutant a pvalue column
     followed by a NES column.
+
+    BUG-007: this column was previously headed "GO_Term" while the two other
+    TSV writers (write_fisher_results_tsv, and Unit 7's clustered variant)
+    headed the identical value "Term_Name". The column holds a term *name*,
+    not a GO term ID, so "Term_Name" is both the majority and the correct
+    spelling. Renaming it is a breaking change for downstream parsers of
+    pvalue_matrix.tsv.
     """
     output_path = output_dir / "pvalue_matrix.tsv"
 
     lines: list[str] = []
-    # Header: GO_ID, GO_Term, then alternating pval/NES columns per mutant
-    header_parts = ["GO_ID", "GO_Term"]
+    # Header: GO_ID, Term_Name, then alternating pval/NES columns per mutant
+    header_parts = ["GO_ID", "Term_Name"]
     for mid in mutant_ids:
         header_parts.append(f"{mid}_pval")
         header_parts.append(f"{mid}_NES")
